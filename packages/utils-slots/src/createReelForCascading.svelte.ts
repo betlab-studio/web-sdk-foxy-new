@@ -272,6 +272,8 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		// Check if global late skip was triggered by another reel
 		const checkGlobalLateSkip = () => {
+			// Anticipated reels (noStop = true) don't respond to global late skip
+			if (noStop) return false;
 			if (globalLateSkipTimestamp > spinStartTime && !lateSkipExecuted) {
 				console.log('[LATE SKIP] Detected global late skip from another reel');
 				lateSkipExecuted = true;
@@ -312,6 +314,8 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		// Check if global early skip was triggered by another reel
 		const checkGlobalEarlySkip = () => {
+			// Anticipated reels (noStop = true) don't respond to global early skip
+			if (noStop) return false;
 			if (globalEarlySkipTimestamp > spinStartTime && !earlySkipExecuted && !lateSkipExecuted) {
 				// Another reel triggered early skip, trigger ours too
 				triggerEarlySkip();
