@@ -32,8 +32,20 @@ export type CascadingReelSpinOptions = {
 	// easing
 	symbolFallInEasing?: EasingFunction;
 	symbolFallOutEasing?: EasingFunction;
+	// overlap between fallOut and fallIn (ms, negative = overlap, positive = gap)
+	fallOutFallInOverlap?: number;
+	// minimum time (ms) before skip is allowed after spin starts
+	skipMinDelay?: number;
+	// additional delay (ms) added to skipMinDelay to determine late skip threshold
+	lateSkipDelay?: number;
+	// duration (ms) of fallIn animation when skip is triggered
+	skipFallInDuration?: number;
+	// interval (ms) between symbols during skip fallIn
+	skipSymbolInterval?: number;
 	// reel
 	reelFallInDelay: number;
+	// anticipation delay (ms) - delay multiplied by paddingSize for anticipated reels
+	reelAnticipationDelay?: number;
 	// extra padding
 	reelPaddingMultiplierNormal: number;
 	reelPaddingMultiplierAnticipated: number;
