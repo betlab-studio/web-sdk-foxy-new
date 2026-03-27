@@ -249,6 +249,14 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 	// Overlapped spin: per-symbol fallOut → swap → fallIn with visual overlap
 	const overlappedSpin = async () => {
+		// Reset global spin start time for reel 0 at the start of each spin
+		// This ensures correct early/late skip detection for bonus spins
+		if (reelOptions.reelIndex === 0) {
+			globalSpinStartTime = performance.now();
+			globalEarlySkipTimestamp = 0;
+			globalLateSkipTimestamp = 0;
+		}
+
 		const gapDelay = reelState.spinOptions().fallOutFallInOverlap ?? 0;
 		const skipMinDelay = reelState.spinOptions().skipMinDelay ?? 0;
 		const lateSkipDelay = reelState.spinOptions().lateSkipDelay ?? 0;
@@ -272,8 +280,8 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		// Check if global late skip was triggered by another reel
 		const checkGlobalLateSkip = () => {
-			// Anticipated reels (noStop = true) don't respond to global late skip
-			if (noStop) return false;
+			// Only actually anticipated reels ignore global late skip
+			if (reelState.spinType === 'anticipated') return false;
 			if (globalLateSkipTimestamp > spinStartTime && !lateSkipExecuted) {
 				console.log('[LATE SKIP] Detected global late skip from another reel');
 				lateSkipExecuted = true;
@@ -314,8 +322,8 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		// Check if global early skip was triggered by another reel
 		const checkGlobalEarlySkip = () => {
-			// Anticipated reels (noStop = true) don't respond to global early skip
-			if (noStop) return false;
+			// Only actually anticipated reels ignore global early skip
+			if (reelState.spinType === 'anticipated') return false;
 			if (globalEarlySkipTimestamp > spinStartTime && !earlySkipExecuted && !lateSkipExecuted) {
 				// Another reel triggered early skip, trigger ours too
 				triggerEarlySkip();
