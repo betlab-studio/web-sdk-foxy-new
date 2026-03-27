@@ -34,26 +34,19 @@ dist
 build-storybook.log
 storybook-static
 
-#audiosprite raw resource
-apps/**/src/game/resources/
-apps/**/src/game/sounds/
-
 #vercel
 .vercel
 
 #playwright
 test-results
-apps/**/test-videos/
-apps/**/test-report
-apps/**/test-results
-apps/**/test-result
 
-#allure report
-apps/**/allure-report
-apps/**/allure-results
+#example games
+apps/*
 
 
 packages/e2e/math-testing/*/*.json
 packages/e2e/math-testing/*/*.png
 packages/e2e/math-testing/*/*.txt
 packages/e2e/math-testing/__pycache__/*
+
+.idea
