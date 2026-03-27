@@ -10,6 +10,12 @@ import type { CascadingReelCreateOptions, CascadingReelSpinOptions, SpinType } f
 // Global state to coordinate late skip across all reels
 let globalLateSkipTimestamp = 0;
 
+// Global state to coordinate early skip across all reels
+let globalEarlySkipTimestamp = 0;
+
+// Global spin start time (set by reel 0, used for skipMinDelay calculation)
+let globalSpinStartTime = 0;
+
 export type CascadingReelMotion = 'fallingOut' | 'hanging' | 'fallingIn' | 'stopped';
 export type CascadingReelSymbolState = 'static' | 'land' | 'spin';
 
@@ -84,7 +90,14 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 	let skipRequested = false;
 
 	const delaySpinByReelIndex = async () => {
-		await waitForTimeout(reelState.spinOptions().reelFallOutDelay * reelOptions.reelIndex);
+		const totalDelay = reelState.spinOptions().reelFallOutDelay * reelOptions.reelIndex;
+		const startTime = performance.now();
+		// Poll for global early skip instead of blocking wait
+		while (performance.now() - startTime < totalDelay) {
+			// Exit early if global early skip was triggered
+			if (globalEarlySkipTimestamp > 0) return;
+			await waitForTimeout(5);
+		}
 	};
 
 	// Calculate time for a symbol to exit the visible frame (accounting for easing)
@@ -129,6 +142,12 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 	}: {
 		isTurboBeforeAll: boolean; // To avoid previous spinType has effect on "getSpinOption" in "slideDownLoop"
 	}) => {
+		// Reel 0 resets global state
+		if (reelOptions.reelIndex === 0) {
+			globalSpinStartTime = performance.now();
+			globalEarlySkipTimestamp = 0;
+			globalLateSkipTimestamp = 0;
+		}
 		skipRequested = false;
 		reelState.spinType = isTurboBeforeAll ? 'fast' : 'normal';
 		if (!isTurboBeforeAll) await delaySpinByReelIndex();
@@ -242,28 +261,12 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		// Skip mode: decided once when first symbol detects skip
 		let skipMode: 'none' | 'early' | 'late' = 'none';
 		let lateSkipExecuted = false;
-		let earlySkipBaseTime = 0; // Shared reference time for early skip animations
-
-		// Determine skip mode (called by first symbol to detect skip)
-		// Calculate the longest fallOut time (for top symbol, symbolIndexOfBoard = -1)
-		// Top symbol has delay = interval * (reelLengthInBoard - (-1)) = interval * (reelLengthInBoard + 1)
-		const maxFallOutDelay = reelState.spinOptions().symbolFallOutInterval * (reelLengthInBoard + 1);
-		// Top symbol travels distance = (reelLengthInBoard + 1) * symbolHeight to exit frame
-		const maxExitDistance = (reelLengthInBoard + 1) * reelOptions.symbolHeight;
-		const estimatedMaxExitTime = maxExitDistance / reelState.spinOptions().symbolFallOutSpeed;
-		// Also account for gapDelay (overlap) if configured
-		const gapDelayValue = reelState.spinOptions().fallOutFallInOverlap ?? 0;
-		const maxFallOutTime = maxFallOutDelay + Math.max(0, estimatedMaxExitTime + gapDelayValue);
 
 		const determineSkipMode = () => {
 			if (skipMode !== 'none') return skipMode;
-			const elapsed = performance.now() - spinStartTime;
+			// Use global spin start time for consistent early/late determination across all reels
+			const elapsed = performance.now() - globalSpinStartTime;
 			skipMode = elapsed >= lateSkipThreshold ? 'late' : 'early';
-			// Set the base time for early skip animations
-			// Must be late enough for ALL symbols (including top row) to reach the skip check
-			if (skipMode === 'early' && earlySkipBaseTime === 0) {
-				earlySkipBaseTime = spinStartTime + Math.max(skipMinDelay, maxFallOutTime);
-			}
 			return skipMode;
 		};
 
@@ -304,6 +307,82 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			console.log('[LATE SKIP] All symbols teleported');
 		};
 
+		// Early skip handled flag
+		let earlySkipExecuted = false;
+
+		// Check if global early skip was triggered by another reel
+		const checkGlobalEarlySkip = () => {
+			if (globalEarlySkipTimestamp > spinStartTime && !earlySkipExecuted && !lateSkipExecuted) {
+				// Another reel triggered early skip, trigger ours too
+				triggerEarlySkip();
+				return true;
+			}
+			return false;
+		};
+
+		// Trigger early skip for ALL symbols at once (teleport + animate fallIn together)
+		const triggerEarlySkip = async () => {
+			if (earlySkipExecuted || lateSkipExecuted) return;
+			earlySkipExecuted = true;
+			skipMode = 'early';
+
+			// Set global timestamp to notify other reels (only first reel sets it)
+			const isFirstToTrigger = globalEarlySkipTimestamp === 0;
+			if (isFirstToTrigger) {
+				globalEarlySkipTimestamp = performance.now();
+			}
+			console.log('[EARLY SKIP] triggerEarlySkip called, isFirst:', isFirstToTrigger);
+
+			// Step 1: Wait until globalSpinStartTime + skipMinDelay (fallOut continues during this time)
+			const targetStartTime = globalSpinStartTime + skipMinDelay;
+			const waitTime = Math.max(0, targetStartTime - performance.now());
+			if (waitTime > 0) {
+				await waitForTimeout(waitTime);
+			}
+
+			if (lateSkipExecuted) return;
+
+			// Step 2: NOW teleport ALL symbols to hanging position with new rawSymbols
+			reelState.symbols.forEach((reelSymbol, symbolIndex) => {
+				const hangingY = getSymbolY(reelSymbol.symbolIndexOfBoard - reelLength + 0.5);
+				reelSymbol.rawSymbol = targetSymbols[symbolIndex];
+				reelSymbol.symbolState = 'spin' as TSymbolState;
+				reelSymbol.symbolY.set(hangingY, { duration: 0 });
+			});
+
+			// Step 3: Start ALL fallIn animations together
+			reelState.motion = 'fallingIn';
+			const fallInPromises = reelState.symbols.map(async (reelSymbol, symbolIndex) => {
+				const symbolIndexOfBoard = reelSymbol.symbolIndexOfBoard;
+				const finalY = getSymbolY(symbolIndexOfBoard);
+				const delay = (reelLengthInBoard - symbolIndexOfBoard) * skipSymbolInterval;
+
+				await waitForTimeout(delay);
+				if (lateSkipExecuted) {
+					reelSymbol.symbolY.set(finalY, { duration: 0 });
+					return;
+				}
+
+				reelSymbol.symbolY.set(finalY, { duration: skipFallInDuration });
+				await waitForTimeout(skipFallInDuration);
+
+				if (lateSkipExecuted) {
+					reelSymbol.symbolY.set(finalY, { duration: 0 });
+					return;
+				}
+
+				reelSymbol.symbolState = 'land' as TSymbolState;
+				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
+				if (symbolIndexOfBoard === reelLengthInBoard - 1) {
+					onSpinFinishing();
+				}
+				reelSymbol.symbolState = 'static' as TSymbolState;
+			});
+
+			await Promise.all(fallInPromises);
+			console.log('[EARLY SKIP] All symbols landed');
+		};
+
 		reelState.motion = 'fallingOut';
 
 		console.log('[SPIN] Starting Promise.all for all symbols');
@@ -312,8 +391,9 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				const symbolIndexOfBoard = reelSymbol.symbolIndexOfBoard;
 				console.log(`[SYMBOL ${symbolIndexOfBoard}] Starting`);
 
-				// Check if another reel already triggered late skip
+				// Check if another reel already triggered skip
 				if (checkGlobalLateSkip()) return;
+				if (checkGlobalEarlySkip()) return;
 
 				// === FALL OUT ===
 				const fallOutDelay =
@@ -327,6 +407,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				// Always wait for fallOut delay (no skip here - skip only after symbol exits frame)
 				await waitForTimeout(fallOutDelay);
 				if (checkGlobalLateSkip()) return;
+				if (checkGlobalEarlySkip()) return;
 				reelSymbol.symbolState = 'spin' as TSymbolState;
 
 				// Start fallOut animation
@@ -345,52 +426,25 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				const adjustedExitTime = Math.max(0, exitTime + gapDelay);
 				await waitForTimeout(adjustedExitTime);
 				if (checkGlobalLateSkip()) return;
+				if (checkGlobalEarlySkip()) return;
+
+				// Check if early skip was already triggered by another symbol
+				if (earlySkipExecuted) return;
 
 				// Skip check after exit
 				if (shouldSkip()) {
 					const mode = determineSkipMode();
 					if (mode === 'late') {
-						// Late skip: teleport ALL symbols at once
 						triggerLateSkip();
 						return;
 					}
-					// Early skip: wait then animate (synchronized with earlySkipBaseTime)
-					reelSymbol.rawSymbol = targetSymbols[symbolIndex];
-					reelSymbol.symbolState = 'spin' as TSymbolState;
-					const hangingY = getSymbolY(symbolIndexOfBoard - reelLength + 0.5);
-					reelSymbol.symbolY.set(hangingY, { duration: 0 });
-
-					// Wait until earlySkipBaseTime
-					const waitTime = Math.max(0, earlySkipBaseTime - performance.now());
-					if (waitTime > 0) {
-						await waitForTimeout(waitTime);
-					}
-					if (checkGlobalLateSkip()) return;
-					if (lateSkipExecuted) return;
-
-					// Animate fallIn
-					const fallInTargetY = getSymbolY(symbolIndexOfBoard);
-					reelSymbol.symbolY.set(fallInTargetY, { duration: skipFallInDuration });
-					await waitForTimeout(skipFallInDuration);
-					if (checkGlobalLateSkip()) return;
-					if (lateSkipExecuted) return;
-					// Callbacks
-					reelSymbol.symbolState = 'land' as TSymbolState;
-					reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
-					if (symbolIndexOfBoard === reelLengthInBoard - 1) {
-						onSpinFinishing();
-					}
-					reelSymbol.symbolState = 'static' as TSymbolState;
+					// Early skip: trigger for ALL symbols at once
+					await triggerEarlySkip();
 					return;
 				}
 
 				// === SWAP & REPOSITION ===
-				if (lateSkipExecuted) {
-					console.log(`[SYMBOL ${symbolIndexOfBoard}] Early return at SWAP (lateSkip)`);
-					// Ensure symbol is at final position
-					const finalY = getSymbolY(symbolIndexOfBoard);
-					reelSymbol.rawSymbol = targetSymbols[symbolIndex];
-					reelSymbol.symbolY.set(finalY, { duration: 0 });
+				if (lateSkipExecuted || earlySkipExecuted) {
 					return;
 				}
 				reelSymbol.rawSymbol = targetSymbols[symbolIndex];
@@ -412,17 +466,10 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				}
 
 				if (checkGlobalLateSkip()) return;
-				if (lateSkipExecuted) {
-					reelSymbol.symbolY.set(getSymbolY(symbolIndexOfBoard), { duration: 0 });
-					return;
-				}
+				if (lateSkipExecuted || earlySkipExecuted) return;
 				await waitForTimeout(reelAnticipationDelayFromPadding + reelFallInDelayFromIndex);
 				if (checkGlobalLateSkip()) return;
-
-				if (lateSkipExecuted) {
-					reelSymbol.symbolY.set(getSymbolY(symbolIndexOfBoard), { duration: 0 });
-					return;
-				}
+				if (lateSkipExecuted || earlySkipExecuted) return;
 				const fallInDelay =
 					reelState.spinOptions().symbolFallInInterval *
 					(reelLengthInBoard - symbolIndexOfBoard);
@@ -441,79 +488,45 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 					return;
 				}
 
+				// Check if early skip was already triggered by another symbol
+				if (earlySkipExecuted) return;
+
 				// Skip check before fallIn
 				if (shouldSkip()) {
 					const mode = determineSkipMode();
 					if (mode === 'late') {
-						// Late skip: teleport ALL symbols at once
 						triggerLateSkip();
 						return;
 					}
-					// Early skip: wait then animate (synchronized with earlySkipBaseTime)
-					// Symbol is already at hangingY from SWAP section
-
-					// Wait until earlySkipBaseTime
-					const waitTime = Math.max(0, earlySkipBaseTime - performance.now());
-					if (waitTime > 0) {
-						await waitForTimeout(waitTime);
-					}
-					if (checkGlobalLateSkip()) return;
-					if (lateSkipExecuted) return;
-
-					// Animate fallIn
-					reelSymbol.symbolY.set(fallInTargetY, { duration: skipFallInDuration });
-					await waitForTimeout(skipFallInDuration);
-					if (checkGlobalLateSkip()) return;
-					if (lateSkipExecuted) return;
-					// Callbacks
-					reelSymbol.symbolState = 'land' as TSymbolState;
-					reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
-					if (symbolIndexOfBoard === reelLengthInBoard - 1) {
-						onSpinFinishing();
-					}
-					reelSymbol.symbolState = 'static' as TSymbolState;
+					// Early skip: trigger for ALL symbols at once
+					await triggerEarlySkip();
 					return;
 				}
 
 				await waitForTimeout(fallInDelay);
 				if (checkGlobalLateSkip()) return;
-				if (lateSkipExecuted) {
-					reelSymbol.symbolY.set(fallInTargetY, { duration: 0 });
-					return;
-				}
+				if (lateSkipExecuted || earlySkipExecuted) return;
+
 				reelSymbol.symbolState = 'spin' as TSymbolState;
 
 				if (checkGlobalLateSkip()) return;
-				if (lateSkipExecuted) {
-					reelSymbol.symbolY.set(fallInTargetY, { duration: 0 });
-					return;
-				}
+				if (lateSkipExecuted || earlySkipExecuted) return;
+
 				reelSymbol.symbolY.set(fallInTargetY - bounceDistance, {
 					duration: landDuration,
 					easing: fallInEasing,
 				});
 				await waitForTimeout(landDuration);
 				if (checkGlobalLateSkip()) return;
-				if (lateSkipExecuted) {
-					// Re-teleport to final position in case animation started
-					reelSymbol.symbolY.set(getSymbolY(symbolIndexOfBoard), { duration: 0 });
-					return;
-				}
+				if (lateSkipExecuted || earlySkipExecuted) return;
 
 				// Check for skip during fallIn animation
-				if (lateSkipExecuted) {
-					console.log(`[SYMBOL ${symbolIndexOfBoard}] Early return during fallIn (lateSkip)`);
-					reelSymbol.symbolY.set(fallInTargetY, { duration: 0 }); // Ensure final position
-					return;
-				}
 				if (shouldSkip()) {
-					const elapsed = performance.now() - spinStartTime;
+					const elapsed = performance.now() - globalSpinStartTime;
 					if (elapsed >= lateSkipThreshold) {
-						console.log(`[SYMBOL ${symbolIndexOfBoard}] Triggering late skip during fallIn (elapsed: ${elapsed.toFixed(0)}ms)`);
 						triggerLateSkip();
 						return;
 					}
-					// Not past skipMinDelay yet, continue normal animation
 				}
 
 				reelSymbol.symbolState = 'land' as TSymbolState;
@@ -524,26 +537,16 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				}
 
 				// Check for skip during bounce phase
-				if (lateSkipExecuted) {
-					console.log(`[SYMBOL ${symbolIndexOfBoard}] Early return before bounce (lateSkip)`);
-					reelSymbol.symbolY.set(fallInTargetY, { duration: 0 }); // Ensure final position
-					return;
-				}
+				if (lateSkipExecuted || earlySkipExecuted) return;
 				if (shouldSkip()) {
-					const elapsed = performance.now() - spinStartTime;
+					const elapsed = performance.now() - globalSpinStartTime;
 					if (elapsed >= lateSkipThreshold) {
-						console.log(`[SYMBOL ${symbolIndexOfBoard}] Triggering late skip during bounce (elapsed: ${elapsed.toFixed(0)}ms)`);
 						triggerLateSkip();
 						return;
 					}
-					// Not past skipMinDelay yet, continue normal animation
 				}
 
-				if (lateSkipExecuted) {
-					console.log(`[SYMBOL ${symbolIndexOfBoard}] Early return before bounce anim (lateSkip)`);
-					reelSymbol.symbolY.set(fallInTargetY, { duration: 0 }); // Ensure final position
-					return;
-				}
+				if (lateSkipExecuted || earlySkipExecuted) return;
 				if (bounceDistance > 0) {
 					reelSymbol.symbolY.set(fallInTargetY, {
 						duration: bounceDuration,
@@ -551,13 +554,8 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 					});
 					await waitForTimeout(bounceDuration);
 					if (checkGlobalLateSkip()) return;
-					if (lateSkipExecuted) {
-						// Re-teleport to final position in case animation was interrupted
-						reelSymbol.symbolY.set(fallInTargetY, { duration: 0 });
-						return;
-					}
+					if (lateSkipExecuted || earlySkipExecuted) return;
 				}
-				console.log(`[SYMBOL ${symbolIndexOfBoard}] Completed normally`);
 			}),
 		);
 
