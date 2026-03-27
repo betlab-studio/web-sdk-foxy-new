@@ -3,6 +3,8 @@ import type { FirstArgOf } from 'utils-shared/types';
 import type { createReelForSpinning } from './createReelForSpinning.svelte';
 import type { createReelForCascading } from './createReelForCascading.svelte';
 
+export type EasingFunction = (t: number) => number;
+
 export type SpinType = 'normal' | 'fast' | 'anticipated';
 
 export type SpinningReelSpinOptions = {
@@ -27,6 +29,9 @@ export type CascadingReelSpinOptions = {
 	symbolFallInBounceSizeMulti: number;
 	symbolFallOutSpeed: number;
 	symbolFallOutInterval: number;
+	// easing
+	symbolFallInEasing?: EasingFunction;
+	symbolFallOutEasing?: EasingFunction;
 	// reel
 	reelFallInDelay: number;
 	// extra padding
