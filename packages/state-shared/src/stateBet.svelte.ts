@@ -43,9 +43,18 @@ let isTurboLocked = false;
 const updateIsTurbo = (value: boolean, options: { persistent: boolean }) => {
 	const { persistent } = options;
 
-	if (!persistent && isTurboLocked) return;
-	if (persistent) isTurboLocked = value;
+	console.log('[TURBO DEBUG] updateIsTurbo called: value=', value, 'persistent=', persistent, 'isTurboLocked=', isTurboLocked);
 
+	if (!persistent && isTurboLocked) {
+		console.log('[TURBO DEBUG] updateIsTurbo BLOCKED: non-persistent update blocked by isTurboLocked');
+		return;
+	}
+	if (persistent) {
+		console.log('[TURBO DEBUG] updateIsTurbo setting isTurboLocked to', value);
+		isTurboLocked = value;
+	}
+
+	console.log('[TURBO DEBUG] updateIsTurbo setting isTurbo to', value);
 	stateBet.isTurbo = value;
 };
 

@@ -79,11 +79,7 @@ export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 			return paddingSize;
 		}, 0);
 
-		await Promise.all(
-			board.map(async (reel) => {
-				await reel.spin();
-			}),
-		);
+		await Promise.all(board.map(async (reel) => await reel.spin()));
 	}
 
 	return { spin };
