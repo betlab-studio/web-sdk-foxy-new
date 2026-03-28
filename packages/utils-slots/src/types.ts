@@ -42,6 +42,10 @@ export type CascadingReelSpinOptions = {
 	skipFallInDuration?: number;
 	// interval (ms) between symbols during skip fallIn
 	skipSymbolInterval?: number;
+	// late skip bounce: size multiplier (relative to symbolHeight)
+	lateSkipBounceSizeMulti?: number;
+	// late skip bounce: duration (ms) for each phase (down + up)
+	lateSkipBounceDuration?: number;
 	// reel
 	reelFallInDelay: number;
 	// anticipation delay (ms) - delay multiplied by paddingSize for anticipated reels

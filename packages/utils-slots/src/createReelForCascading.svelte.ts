@@ -258,13 +258,16 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		}
 
 		const gapDelay = reelState.spinOptions().fallOutFallInOverlap ?? 0;
-		const skipMinDelay = reelState.spinOptions().skipMinDelay ?? 0;
+		const skipMinDelay = reelState.spinOptions().skipMinDelay;
+		const skipEnabled = skipMinDelay !== undefined;
 		const lateSkipDelay = reelState.spinOptions().lateSkipDelay ?? 0;
-		const lateSkipThreshold = skipMinDelay + lateSkipDelay;
+		const lateSkipThreshold = (skipMinDelay ?? 0) + lateSkipDelay;
 		const skipFallInDuration = reelState.spinOptions().skipFallInDuration ?? 0;
 		const skipSymbolInterval = reelState.spinOptions().skipSymbolInterval ?? 0;
+		const lateSkipBounceSizeMulti = reelState.spinOptions().lateSkipBounceSizeMulti ?? 0.15;
+		const lateSkipBounceDuration = reelState.spinOptions().lateSkipBounceDuration ?? 100;
 		const spinStartTime = performance.now();
-		const shouldSkip = () => !noStop && (skipRequested || stateBet.isTurbo);
+		const shouldSkip = () => skipEnabled && !noStop && (skipRequested || stateBet.isTurbo);
 
 		// Skip mode: decided once when first symbol detects skip
 		let skipMode: 'none' | 'early' | 'late' = 'none';
@@ -280,24 +283,22 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		// Check if global late skip was triggered by another reel
 		const checkGlobalLateSkip = () => {
-			// Only actually anticipated reels ignore global late skip
+			// Skip disabled or anticipated reels ignore global late skip
+			if (!skipEnabled) return false;
 			if (reelState.spinType === 'anticipated') return false;
 			if (globalLateSkipTimestamp > spinStartTime && !lateSkipExecuted) {
 				console.log('[LATE SKIP] Detected global late skip from another reel');
-				lateSkipExecuted = true;
-				skipMode = 'late';
-				reelState.symbols.forEach((reelSymbol, symbolIndex) => {
-					const finalY = getSymbolY(reelSymbol.symbolIndexOfBoard);
-					reelSymbol.rawSymbol = targetSymbols[symbolIndex];
-					reelSymbol.symbolState = 'static' as TSymbolState;
-					reelSymbol.symbolY.set(finalY, { duration: 0 });
-				});
+				// Use triggerLateSkip to get the same bounce animation
+				triggerLateSkip();
 				return true;
 			}
 			return false;
 		};
 
-		// Teleport ALL symbols at once (for late skip)
+		// Late skip animation promise (to wait for it after Promise.all)
+		let lateSkipAnimationPromise: Promise<void> | null = null;
+
+		// Teleport ALL symbols at once with bounce animation (for late skip)
 		const triggerLateSkip = () => {
 			console.log('[LATE SKIP] triggerLateSkip called, lateSkipExecuted:', lateSkipExecuted);
 			if (lateSkipExecuted) return;
@@ -308,13 +309,43 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			globalLateSkipTimestamp = performance.now();
 			console.log('[LATE SKIP] Set globalLateSkipTimestamp:', globalLateSkipTimestamp);
 
+			const bounceDistance = reelOptions.symbolHeight * lateSkipBounceSizeMulti;
+			const bounceDuration = lateSkipBounceDuration;
+
+			// Step 1: Teleport all symbols to final position
 			reelState.symbols.forEach((reelSymbol, symbolIndex) => {
 				const finalY = getSymbolY(reelSymbol.symbolIndexOfBoard);
 				reelSymbol.rawSymbol = targetSymbols[symbolIndex];
 				reelSymbol.symbolState = 'static' as TSymbolState;
 				reelSymbol.symbolY.set(finalY, { duration: 0 });
 			});
-			console.log('[LATE SKIP] All symbols teleported');
+
+			// Step 2: Animate bounce (down then up) for all symbols
+			reelState.motion = 'fallingIn';
+			lateSkipAnimationPromise = Promise.all(
+				reelState.symbols.map(async (reelSymbol) => {
+					const finalY = getSymbolY(reelSymbol.symbolIndexOfBoard);
+
+					// Bounce down (overshoot)
+					await reelSymbol.symbolY.set(finalY + bounceDistance, {
+						duration: bounceDuration,
+					});
+
+					// Bounce back up to final position
+					await reelSymbol.symbolY.set(finalY, {
+						duration: bounceDuration,
+						easing: backOut,
+					});
+
+					reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
+
+					if (reelSymbol.symbolIndexOfBoard === reelLengthInBoard - 1) {
+						onSpinFinishing();
+					}
+				}),
+			).then(() => {
+				console.log('[LATE SKIP] All symbols landed with bounce');
+			});
 		};
 
 		// Early skip handled flag
@@ -322,7 +353,8 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		// Check if global early skip was triggered by another reel
 		const checkGlobalEarlySkip = () => {
-			// Only actually anticipated reels ignore global early skip
+			// Skip disabled or anticipated reels ignore global early skip
+			if (!skipEnabled) return false;
 			if (reelState.spinType === 'anticipated') return false;
 			if (globalEarlySkipTimestamp > spinStartTime && !earlySkipExecuted && !lateSkipExecuted) {
 				// Another reel triggered early skip, trigger ours too
@@ -346,7 +378,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			console.log('[EARLY SKIP] triggerEarlySkip called, isFirst:', isFirstToTrigger);
 
 			// Step 1: Wait until globalSpinStartTime + skipMinDelay (fallOut continues during this time)
-			const targetStartTime = globalSpinStartTime + skipMinDelay;
+			const targetStartTime = globalSpinStartTime + (skipMinDelay ?? 0);
 			const waitTime = Math.max(0, targetStartTime - performance.now());
 			if (waitTime > 0) {
 				await waitForTimeout(waitTime);
@@ -383,12 +415,28 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 					return;
 				}
 
-				reelSymbol.symbolState = 'land' as TSymbolState;
+				// Bounce effect: down then up
+				const bounceDistance = reelOptions.symbolHeight * lateSkipBounceSizeMulti;
+				reelSymbol.symbolState = 'static' as TSymbolState;
+
+				await reelSymbol.symbolY.set(finalY + bounceDistance, {
+					duration: lateSkipBounceDuration,
+				});
+
+				if (lateSkipExecuted) {
+					reelSymbol.symbolY.set(finalY, { duration: 0 });
+					return;
+				}
+
+				await reelSymbol.symbolY.set(finalY, {
+					duration: lateSkipBounceDuration,
+					easing: backOut,
+				});
+
 				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
 				if (symbolIndexOfBoard === reelLengthInBoard - 1) {
 					onSpinFinishing();
 				}
-				reelSymbol.symbolState = 'static' as TSymbolState;
 			});
 
 			await Promise.all(fallInPromises);
@@ -573,14 +621,9 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		console.log('[SPIN] Promise.all completed, lateSkipExecuted:', lateSkipExecuted);
 
-		// If late skip was triggered, call the callbacks now
-		if (lateSkipExecuted) {
-			console.log('[LATE SKIP] Calling callbacks after Promise.all');
-			reelState.symbols.forEach((reelSymbol) => {
-				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
-			});
-			onSpinFinishing();
-			console.log('[LATE SKIP] Callbacks done');
+		// If late skip was triggered, wait for the bounce animation to complete
+		if (lateSkipExecuted && lateSkipAnimationPromise) {
+			await lateSkipAnimationPromise;
 		}
 
 		reelState.motion = 'stopped';
