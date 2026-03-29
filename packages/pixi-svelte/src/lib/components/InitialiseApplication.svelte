@@ -26,7 +26,7 @@
 			multiView: false,
 			antialias: true,
 			clearBeforeRender: true,
-			preference: 'webgpu',
+			preference: /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'webgl' : 'webgpu',
 			powerPreference: 'high-performance',
 			resolution: devicePixelRatio.current,
 			resizeTo: window,
