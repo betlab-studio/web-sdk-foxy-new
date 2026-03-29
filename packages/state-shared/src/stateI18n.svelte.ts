@@ -5,10 +5,13 @@ export const stateI18n = $state({
 	i18n
 });
 
+let messages: Messages = {};
+
 export const stateI18nDerived = {
-	init: (lang: Language, messages: Messages) => {
-		stateI18n.i18n.load(lang, messages as Messages);
+	init: (lang: Language, msgs: Messages) => {
+		messages = msgs;
+		stateI18n.i18n.load(lang, msgs);
 		stateI18n.i18n.activate(lang);
 	},
-	translate: (value: string) => stateI18n.i18n._(stateI18n.i18n.t(value)),
+	translate: (value: string) => (messages[value] as string) ?? value,
 };

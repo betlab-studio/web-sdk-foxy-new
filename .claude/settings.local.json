@@ -6,7 +6,13 @@
       "Bash(grep -r \"SpineProvider\\\\|SpineTrack\\\\|SpineBone\" /c/Users/alexa/Documents/Codes/stake_engine_projects/web-sdk --include=*.svelte --include=*.ts)",
       "Bash(find \"C:/Users/alexa/Documents/Codes/stake_engine_projects/web-sdk/apps\" -maxdepth 2 -name \"vite.config.js\" -exec wc -l {})",
       "Bash(xargs ls:*)",
-      "Bash(echo \"EXIT: $?\")"
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(grep -r \"AUDIO\\\\|BALANCE\\\\|WIN\\\\|BET\\\\|TURBO\\\\|AUTO SPIN\" C:UsersalexaDocumentsCodesstake_engine_projectsweb-sdk --include=*.ts --include=*.js)",
+      "Bash(grep -r \"AUDIO\\\\|TURBO\" /c/Users/alexa/Documents/Codes/stake_engine_projects/web-sdk --include=*.ts)",
+      "Bash(grep -r AUDIO /c/Users/alexa/Documents/Codes/stake_engine_projects/web-sdk/packages --include=*.ts)",
+      "Bash(grep -r ''AUDIO'' /c/Users/alexa/Documents/Codes/stake_engine_projects/web-sdk --include=*.ts)",
+      "Bash(grep -r messagesMap /c/Users/alexa/Documents/Codes/stake_engine_projects/web-sdk/apps/black_flower/src --include=*.ts --include=*.svelte)",
+      "Bash(find /c/Users/alexa/Documents/Codes/stake_engine_projects/web-sdk -name *.po -o -name messages.ts)"
     ]
   }
 }
