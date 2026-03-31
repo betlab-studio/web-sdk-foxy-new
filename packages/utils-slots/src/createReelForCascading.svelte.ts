@@ -95,9 +95,11 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 	// Wrapper to prevent multiple calls to onSpinFinishing
 	const callOnSpinFinishing = () => {
+		console.log(`[SPIN FINISHING] Reel ${reelOptions.reelIndex}: spinFinishingCalled=${spinFinishingCalled}`);
 		if (spinFinishingCalled) return;
 		spinFinishingCalled = true;
-		callOnSpinFinishing();
+		console.log(`[SPIN FINISHING] Reel ${reelOptions.reelIndex}: calling onSpinFinishing`);
+		onSpinFinishing();
 	};
 
 	const delaySpinByReelIndex = async () => {
