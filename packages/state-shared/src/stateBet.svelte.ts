@@ -23,10 +23,6 @@ export const stateBet = $state({
 
 const correctBetAmount = (value: number) => {
 	if (value <= 0) return 0;
-	const costMultiplier = betCostMultiplier();
-	if (costMultiplier === 0) return 0;
-	const max = stateBet.balanceAmount / costMultiplier;
-	if (value >= max) return max;
 	return value;
 };
 
