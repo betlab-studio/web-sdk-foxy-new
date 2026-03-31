@@ -51,33 +51,47 @@ export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 			return globalSpinType;
 		};
 
-		board.reduce((previousPaddingSize, reel, reelIndex) => {
-			const noStop = globalHasAnticipation && reelIndex >= firstAnticipatedReelIndex;
-			const isAnticipated = (revealEvent.anticipation?.[reelIndex] || 0) > 0;
-			const spinType = getSpinType({ noStop, isAnticipated });
-			const symbols = revealEvent.board[reelIndex] as TRawSymbol[];
-			const paddingReel = paddingBoard?.[reelIndex];
-			const paddingPosition = revealEvent?.paddingPositions?.[reelIndex];
+		board.reduce(
+			(acc, reel, reelIndex) => {
+				const noStop = globalHasAnticipation && reelIndex >= firstAnticipatedReelIndex;
+				const isAnticipated = (revealEvent.anticipation?.[reelIndex] || 0) > 0;
+				const spinType = getSpinType({ noStop, isAnticipated });
+				const symbols = revealEvent.board[reelIndex] as TRawSymbol[];
+				const paddingReel = paddingBoard?.[reelIndex];
+				const paddingPosition = revealEvent?.paddingPositions?.[reelIndex];
 
-			const paddingSize = reel.prepareToSpin({
-				noStop,
-				spinType,
-				symbols,
-				// @ts-ignore Ignored because paddingReel is not required by createCascadingReel
-				paddingReel,
-				// @ts-ignore Ignored because paddingPosition is not required by createCascadingReel
-				paddingPosition,
-				previousPaddingSize,
-				onSpinFinishing: () => {
-					reel.onReelStopping();
-					const nextReelIndex = reelIndex + 1;
-					const isNextReelAnticipated = (revealEvent.anticipation?.[nextReelIndex] || 0) > 0;
-					if (isNextReelAnticipated) board[nextReelIndex].reelState.anticipating = true;
-				},
-			});
+				// Capture the padding before first anticipated reel
+				const paddingBeforeFirstAnticipated =
+					isAnticipated && acc.paddingBeforeFirstAnticipated === -1
+						? acc.previousPaddingSize
+						: acc.paddingBeforeFirstAnticipated;
 
-			return paddingSize;
-		}, 0);
+				const paddingSize = reel.prepareToSpin({
+					noStop,
+					spinType,
+					symbols,
+					// @ts-ignore Ignored because paddingReel is not required by createCascadingReel
+					paddingReel,
+					// @ts-ignore Ignored because paddingPosition is not required by createCascadingReel
+					paddingPosition,
+					previousPaddingSize: acc.previousPaddingSize,
+					paddingBeforeFirstAnticipated:
+						paddingBeforeFirstAnticipated === -1 ? undefined : paddingBeforeFirstAnticipated,
+					onSpinFinishing: () => {
+						reel.onReelStopping();
+						const nextReelIndex = reelIndex + 1;
+						const isNextReelAnticipated = (revealEvent.anticipation?.[nextReelIndex] || 0) > 0;
+						if (isNextReelAnticipated) board[nextReelIndex].reelState.anticipating = true;
+					},
+				});
+
+				return {
+					previousPaddingSize: paddingSize,
+					paddingBeforeFirstAnticipated,
+				};
+			},
+			{ previousPaddingSize: 0, paddingBeforeFirstAnticipated: -1 },
+		);
 
 		await Promise.all(board.map(async (reel) => await reel.spin()));
 	}

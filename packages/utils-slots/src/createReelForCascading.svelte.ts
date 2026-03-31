@@ -95,10 +95,10 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 	// Wrapper to prevent multiple calls to onSpinFinishing
 	const callOnSpinFinishing = () => {
-		console.log(`[SPIN FINISHING] Reel ${reelOptions.reelIndex}: spinFinishingCalled=${spinFinishingCalled}`);
+		console.log(`[SPIN FINISHING] Reel ${reelOptions.reelIndex}: spinFinishingCalled=${spinFinishingCalled} at ${performance.now().toFixed(0)}ms`);
 		if (spinFinishingCalled) return;
 		spinFinishingCalled = true;
-		console.log(`[SPIN FINISHING] Reel ${reelOptions.reelIndex}: calling onSpinFinishing`);
+		console.log(`[SPIN FINISHING] Reel ${reelOptions.reelIndex}: calling onSpinFinishing (triggers next reel anticipation) at ${performance.now().toFixed(0)}ms`);
 		onSpinFinishing();
 	};
 
@@ -258,6 +258,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			});
 		});
 
+		console.log(`[GENERAL SPIN] Reel ${reelOptions.reelIndex}: spin complete, setting motion=stopped at ${performance.now().toFixed(0)}ms`);
 		reelState.motion = 'stopped';
 	};
 
@@ -588,13 +589,20 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				// Anticipation delay only for anticipated reels
 				let reelAnticipationDelayFromPadding = 0;
 				if (reelState.spinType === 'anticipated') {
-					const fallInDelayMultiplier = Math.max(0, paddingSize / reelLength - 1);
+					// Use ONLY the anticipated padding portion for consistent timing
+					// This ensures the delay is the same regardless of how many normal reels came before
+					const anticipatedPaddingOnly = paddingSize - normalPaddingBeforeAnticipation;
+					const fallInDelayMultiplier = Math.max(0, anticipatedPaddingOnly / reelLength - 1);
 					reelAnticipationDelayFromPadding = reelAnticipationDelay * fallInDelayMultiplier;
+					console.log(`[ANTICIPATION DELAY] Reel ${reelOptions.reelIndex}: paddingSize=${paddingSize}, normalPaddingBeforeAnticipation=${normalPaddingBeforeAnticipation}, anticipatedPaddingOnly=${anticipatedPaddingOnly}, reelLength=${reelLength}, fallInDelayMultiplier=${fallInDelayMultiplier.toFixed(2)}, reelAnticipationDelay=${reelAnticipationDelay}, reelAnticipationDelayFromPadding=${reelAnticipationDelayFromPadding.toFixed(0)}ms`);
 				}
+
+				const totalFallInDelay = reelAnticipationDelayFromPadding + reelFallInDelayFromIndex;
+				console.log(`[FALL IN DELAY] Reel ${reelOptions.reelIndex}, Symbol ${symbolIndexOfBoard}: reelFallInDelayFromIndex=${reelFallInDelayFromIndex}ms, reelAnticipationDelayFromPadding=${reelAnticipationDelayFromPadding.toFixed(0)}ms, totalDelay=${totalFallInDelay.toFixed(0)}ms`);
 
 				if (checkGlobalLateSkip()) return;
 				if (lateSkipExecuted || earlySkipExecuted) return;
-				await waitForTimeout(reelAnticipationDelayFromPadding + reelFallInDelayFromIndex);
+				await waitForTimeout(totalFallInDelay);
 				if (checkGlobalLateSkip()) return;
 				if (lateSkipExecuted || earlySkipExecuted) return;
 				const fallInDelay = symbolFallInInterval * (reelLengthInBoard - symbolIndexOfBoard);
@@ -656,6 +664,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
 
 				if (symbolIndexOfBoard === reelLengthInBoard - 1) {
+					console.log(`[LAST SYMBOL LAND] Reel ${reelOptions.reelIndex}: last symbol landed at ${performance.now().toFixed(0)}ms, calling onSpinFinishing`);
 					callOnSpinFinishing();
 				}
 
@@ -724,6 +733,9 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		anticipated: anticipatedSpin,
 	};
 
+	// Store the normal padding accumulated before first anticipated reel (for delay calculation)
+	let normalPaddingBeforeAnticipation = 0;
+
 	const prepareToSpin = (prepareToSpinOptions: {
 		noStop: boolean;
 		spinType: SpinType;
@@ -731,6 +743,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		paddingPosition: number;
 		onSpinFinishing: () => void;
 		previousPaddingSize: number;
+		paddingBeforeFirstAnticipated?: number;
 	}) => {
 		reelState.spinType = prepareToSpinOptions.spinType;
 
@@ -746,6 +759,11 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		};
 
 		paddingSize = GET_PADDING_SIZE_MAP[prepareToSpinOptions.spinType];
+
+		// Store the normal padding for anticipated delay calculation
+		normalPaddingBeforeAnticipation = prepareToSpinOptions.paddingBeforeFirstAnticipated ?? 0;
+
+		console.log(`[PREPARE] Reel ${reelOptions.reelIndex}: spinType=${prepareToSpinOptions.spinType}, previousPaddingSize=${prepareToSpinOptions.previousPaddingSize}, basePaddingSize=${basePaddingSize()}, anticipatedPaddingSize=${anticipatedPaddingSize()}, paddingSize=${paddingSize}, normalPaddingBeforeAnticipation=${normalPaddingBeforeAnticipation}, reelLength=${reelLength}`);
 
 		return paddingSize;
 	};
