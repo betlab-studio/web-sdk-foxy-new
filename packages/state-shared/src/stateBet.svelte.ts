@@ -43,18 +43,13 @@ let isTurboLocked = false;
 const updateIsTurbo = (value: boolean, options: { persistent: boolean }) => {
 	const { persistent } = options;
 
-	console.log('[TURBO DEBUG] updateIsTurbo called: value=', value, 'persistent=', persistent, 'isTurboLocked=', isTurboLocked);
-
 	if (!persistent && isTurboLocked) {
-		console.log('[TURBO DEBUG] updateIsTurbo BLOCKED: non-persistent update blocked by isTurboLocked');
 		return;
 	}
 	if (persistent) {
-		console.log('[TURBO DEBUG] updateIsTurbo setting isTurboLocked to', value);
 		isTurboLocked = value;
 	}
 
-	console.log('[TURBO DEBUG] updateIsTurbo setting isTurbo to', value);
 	stateBet.isTurbo = value;
 };
 
@@ -63,6 +58,8 @@ const activeBetMode = () => stateMeta.betModeMeta?.[stateBet.activeBetModeKey.to
 	?? null;
 const isContinuousBet = () => stateBet.autoSpinsCounter > 1 || stateBet.isSpaceHold;
 const timeScale = () => (stateBet.isTurbo ? 2 : 1);
+// Returns timeScale based on persistent turbo setting only (ignores skip-triggered turbo)
+const persistentTimeScale = () => (isTurboLocked ? 2 : 1);
 const betCostMultiplier = () =>
 	stateBetDerived.activeBetMode().type === 'activate'
 		? stateBetDerived.activeBetMode().costMultiplier
@@ -78,6 +75,7 @@ export const stateBetDerived = {
 	activeBetMode,
 	isContinuousBet,
 	timeScale,
+	persistentTimeScale,
 	betCost,
 	isBetCostAvailable,
 	hasAutoBetCounter,
