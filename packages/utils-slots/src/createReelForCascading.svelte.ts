@@ -16,6 +16,9 @@ let globalEarlySkipTimestamp = 0;
 // Global spin start time (set by reel 0, used for skipMinDelay calculation)
 let globalSpinStartTime = 0;
 
+// Global skip mode - ensures all reels use the same skip mode (first reel to determine sets it for all)
+let globalSkipMode: 'none' | 'early' | 'late' = 'none';
+
 export type CascadingReelMotion = 'fallingOut' | 'hanging' | 'fallingIn' | 'stopped';
 export type CascadingReelSymbolState = 'static' | 'land' | 'spin';
 
@@ -85,9 +88,17 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 	// internal states
 	let targetSymbols = reelOptions.initialSymbols;
 	let onSpinFinishing: () => void = () => {};
+	let spinFinishingCalled = false;
 	let noStop = false;
 	let paddingSize = 0;
 	let skipRequested = false;
+
+	// Wrapper to prevent multiple calls to onSpinFinishing
+	const callOnSpinFinishing = () => {
+		if (spinFinishingCalled) return;
+		spinFinishingCalled = true;
+		callOnSpinFinishing();
+	};
 
 	const delaySpinByReelIndex = async () => {
 		const totalDelay = reelState.spinOptions().reelFallOutDelay * reelOptions.reelIndex;
@@ -147,6 +158,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			globalSpinStartTime = performance.now();
 			globalEarlySkipTimestamp = 0;
 			globalLateSkipTimestamp = 0;
+			globalSkipMode = 'none';
 		}
 		skipRequested = false;
 		reelState.spinType = isTurboBeforeAll ? 'fast' : 'normal';
@@ -236,7 +248,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			reelSymbol.symbolState = 'land' as TSymbolState;
 			reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
 			if (reelSymbol.symbolIndexOfBoard === reelLengthInBoard - 1) {
-				onSpinFinishing();
+				callOnSpinFinishing();
 			}
 			await reelSymbol.symbolY.set(newSymbolY, {
 				duration: bounceDuration,
@@ -255,6 +267,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			globalSpinStartTime = performance.now();
 			globalEarlySkipTimestamp = 0;
 			globalLateSkipTimestamp = 0;
+			globalSkipMode = 'none';
 		}
 
 		// Cache ALL spin options at the start to avoid inconsistencies if speed changes mid-animation
@@ -288,10 +301,24 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		let lateSkipExecuted = false;
 
 		const determineSkipMode = () => {
-			if (skipMode !== 'none') return skipMode;
-			// Use global spin start time for consistent early/late determination across all reels
+			console.log(`[DETERMINE] Reel ${reelOptions.reelIndex}: START globalSkipMode=${globalSkipMode}, local skipMode=${skipMode}`);
+			// FIRST: Always check globalSkipMode - if another reel already determined, ALL reels must use it
+			// This ensures consistency even if local skipMode was already set
+			if (globalSkipMode !== 'none') {
+				skipMode = globalSkipMode;
+				console.log(`[DETERMINE] Reel ${reelOptions.reelIndex}: using globalSkipMode=${globalSkipMode}`);
+				return skipMode;
+			}
+			// If local mode already determined (and global not set yet), use local
+			if (skipMode !== 'none') {
+				console.log(`[DETERMINE] Reel ${reelOptions.reelIndex}: using cached local skipMode=${skipMode}`);
+				return skipMode;
+			}
+			// Determine mode based on elapsed time and set BOTH local and global
 			const elapsed = performance.now() - globalSpinStartTime;
 			skipMode = elapsed >= lateSkipThreshold ? 'late' : 'early';
+			globalSkipMode = skipMode;
+			console.log(`[SKIP MODE] Reel ${reelOptions.reelIndex}: determined globalSkipMode=${skipMode} (elapsed=${elapsed.toFixed(0)}ms, threshold=${lateSkipThreshold}ms)`);
 			return skipMode;
 		};
 
@@ -316,7 +343,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 		// Teleport ALL symbols at once with bounce animation (for late skip)
 		const triggerLateSkip = () => {
-			if (lateSkipExecuted) return;
+			if (lateSkipExecuted || earlySkipExecuted) return;
 			lateSkipExecuted = true;
 			skipMode = 'late';
 
@@ -354,10 +381,10 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 					reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
 
 					if (reelSymbol.symbolIndexOfBoard === reelLengthInBoard - 1) {
-						onSpinFinishing();
+						callOnSpinFinishing();
 					}
 				}),
-			).then(() => {});
+			);
 		};
 
 		// Early skip handled flag
@@ -468,7 +495,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				console.log(`[EARLY SKIP] Reel ${reelOptions.reelIndex} Symbol ${symbolIndex}: fallIn complete`);
 				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
 				if (symbolIndexOfBoard === reelLengthInBoard - 1) {
-					onSpinFinishing();
+					callOnSpinFinishing();
 				}
 			});
 
@@ -616,8 +643,8 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 
 				// Check for skip during fallIn animation
 				if (shouldSkip()) {
-					const elapsed = performance.now() - globalSpinStartTime;
-					if (elapsed >= lateSkipThreshold) {
+					const mode = determineSkipMode();
+					if (mode === 'late') {
 						triggerLateSkip();
 						return;
 					}
@@ -627,14 +654,14 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
 
 				if (symbolIndexOfBoard === reelLengthInBoard - 1) {
-					onSpinFinishing();
+					callOnSpinFinishing();
 				}
 
 				// Check for skip during bounce phase
 				if (lateSkipExecuted || earlySkipExecuted) return;
 				if (shouldSkip()) {
-					const elapsed = performance.now() - globalSpinStartTime;
-					if (elapsed >= lateSkipThreshold) {
+					const mode = determineSkipMode();
+					if (mode === 'late') {
 						triggerLateSkip();
 						return;
 					}
@@ -708,6 +735,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		noStop = prepareToSpinOptions.noStop;
 		targetSymbols = prepareToSpinOptions.symbols;
 		onSpinFinishing = prepareToSpinOptions.onSpinFinishing;
+		spinFinishingCalled = false;
 
 		const GET_PADDING_SIZE_MAP = {
 			fast: 0,
