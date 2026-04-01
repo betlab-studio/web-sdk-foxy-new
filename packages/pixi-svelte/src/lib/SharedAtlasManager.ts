@@ -21,10 +21,19 @@ export interface SequenceMapping {
 	digits?: number;
 }
 
+export interface RegionMapping {
+	/** Source region name in shared atlas */
+	sourceName: string;
+	/** Target region name expected by skeleton (defaults to sourceName if not provided) */
+	targetName?: string;
+}
+
 export interface SharedAtlasConfig {
 	atlasPath: string;
 	imagePath: string;
-	sequences: SequenceMapping[];
+	sequences?: SequenceMapping[];
+	/** Individual region mappings (for non-sequence assets like individual numbers) */
+	regions?: RegionMapping[];
 }
 
 export interface LoadSkeletonOptions {
@@ -32,12 +41,15 @@ export interface LoadSkeletonOptions {
 	imagePath: string;
 	skeletonPath: string;
 	injectSequences?: string[];
+	/** Individual region names to inject */
+	injectRegions?: string[];
 	scale?: number;
 }
 
 export class SharedAtlasManager {
 	private sharedAtlases: Map<string, TextureAtlas> = new Map();
 	private sequenceMappings: Map<string, SequenceMapping> = new Map();
+	private regionMappings: Map<string, RegionMapping> = new Map();
 	private configs: Map<string, SharedAtlasConfig> = new Map();
 	private initialized = false;
 
@@ -75,11 +87,20 @@ export class SharedAtlasManager {
 		this.sharedAtlases.set(name, atlas);
 		this.configs.set(name, config);
 
-		for (const sequence of config.sequences) {
-			this.sequenceMappings.set(sequence.targetBaseName, {
-				...sequence,
-				startIndex: sequence.startIndex ?? 0,
-			});
+		if (config.sequences) {
+			for (const sequence of config.sequences) {
+				this.sequenceMappings.set(sequence.targetBaseName, {
+					...sequence,
+					startIndex: sequence.startIndex ?? 0,
+				});
+			}
+		}
+
+		if (config.regions) {
+			for (const region of config.regions) {
+				const targetName = region.targetName ?? region.sourceName;
+				this.regionMappings.set(targetName, region);
+			}
 		}
 	}
 
@@ -90,7 +111,7 @@ export class SharedAtlasManager {
 		if (!mapping) return null;
 
 		for (const [name, config] of this.configs.entries()) {
-			const hasSequence = config.sequences.some((s) => s.targetBaseName === targetBaseName);
+			const hasSequence = config.sequences?.some((s) => s.targetBaseName === targetBaseName);
 			if (hasSequence) {
 				const atlas = this.sharedAtlases.get(name);
 				if (atlas) {
@@ -100,6 +121,62 @@ export class SharedAtlasManager {
 		}
 
 		return null;
+	}
+
+	private findAtlasForRegion(
+		targetName: string,
+	): { atlas: TextureAtlas; mapping: RegionMapping } | null {
+		const mapping = this.regionMappings.get(targetName);
+		if (!mapping) return null;
+
+		for (const [name, config] of this.configs.entries()) {
+			const hasRegion = config.regions?.some(
+				(r) => (r.targetName ?? r.sourceName) === targetName,
+			);
+			if (hasRegion) {
+				const atlas = this.sharedAtlases.get(name);
+				if (atlas) {
+					return { atlas, mapping };
+				}
+			}
+		}
+
+		return null;
+	}
+
+	injectRegion(targetAtlas: TextureAtlas, targetName: string): boolean {
+		const found = this.findAtlasForRegion(targetName);
+		if (!found) {
+			console.warn(`[SharedAtlasManager] Region "${targetName}" not found in mappings`);
+			return false;
+		}
+
+		const { atlas: sourceAtlas, mapping } = found;
+		const sourceRegion = sourceAtlas.findRegion(mapping.sourceName);
+
+		if (!sourceRegion) {
+			console.warn(
+				`[SharedAtlasManager] Source region "${mapping.sourceName}" not found in atlas`,
+			);
+			return false;
+		}
+
+		const newRegion = Object.create(Object.getPrototypeOf(sourceRegion)) as TextureRegion;
+		Object.assign(newRegion, sourceRegion);
+		newRegion.name = targetName;
+
+		targetAtlas.regions.push(newRegion);
+		return true;
+	}
+
+	injectRegionsIntoAtlas(atlas: TextureAtlas, regionNames: string[]): number {
+		let injectedCount = 0;
+		for (const regionName of regionNames) {
+			if (this.injectRegion(atlas, regionName)) {
+				injectedCount++;
+			}
+		}
+		return injectedCount;
 	}
 
 	injectSequence(targetAtlas: TextureAtlas, targetBaseName: string): number {
@@ -156,6 +233,10 @@ export class SharedAtlasManager {
 			}
 		}
 
+		if (options.injectRegions) {
+			this.injectRegionsIntoAtlas(skeletonAtlas, options.injectRegions);
+		}
+
 		const skeletonJson = await fetch(options.skeletonPath).then((r) => r.json());
 		const attachmentLoader = new AtlasAttachmentLoader(skeletonAtlas);
 		const jsonParser = new SkeletonJson(attachmentLoader);
@@ -175,6 +256,14 @@ export class SharedAtlasManager {
 		return this.sequenceMappings.has(targetBaseName);
 	}
 
+	hasRegion(targetName: string): boolean {
+		return this.regionMappings.has(targetName);
+	}
+
+	getAvailableRegions(): string[] {
+		return Array.from(this.regionMappings.keys());
+	}
+
 	isInitialized(): boolean {
 		return this.initialized;
 	}
@@ -189,6 +278,7 @@ export class SharedAtlasManager {
 		}
 		this.sharedAtlases.clear();
 		this.sequenceMappings.clear();
+		this.regionMappings.clear();
 		this.configs.clear();
 		this.initialized = false;
 	}
