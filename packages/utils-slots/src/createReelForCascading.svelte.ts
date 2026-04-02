@@ -246,7 +246,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				easing,
 			});
 			reelSymbol.symbolState = 'land' as TSymbolState;
-			reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
+			reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol, symbolIndexOfBoard: reelSymbol.symbolIndexOfBoard });
 			if (reelSymbol.symbolIndexOfBoard === reelLengthInBoard - 1) {
 				callOnSpinFinishing();
 			}
@@ -374,7 +374,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 						easing: backOut,
 					});
 
-					reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
+					reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol, symbolIndexOfBoard: reelSymbol.symbolIndexOfBoard });
 
 					if (reelSymbol.symbolIndexOfBoard === reelLengthInBoard - 1) {
 						callOnSpinFinishing();
@@ -477,7 +477,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 					easing: backOut,
 				});
 
-				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
+				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol, symbolIndexOfBoard });
 				if (symbolIndexOfBoard === reelLengthInBoard - 1) {
 					callOnSpinFinishing();
 				}
@@ -632,7 +632,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 				}
 
 				reelSymbol.symbolState = 'land' as TSymbolState;
-				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol });
+				reelOptions.onSymbolLand({ rawSymbol: reelSymbol.rawSymbol, symbolIndexOfBoard });
 
 				if (symbolIndexOfBoard === reelLengthInBoard - 1) {
 					callOnSpinFinishing();
