@@ -1,9 +1,42 @@
-import { stateI18n } from 'state-shared';
-
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { stateBet } from 'state-shared';
 
-const NO_LOCALISATION_CURRENCY_MAP: Record<string, string> = {
+// Currency symbols mapping
+const CURRENCY_SYMBOL_MAP: Record<string, string> = {
+	USD: '$',
+	CAD: 'CA$',
+	JPY: '¥',
+	EUR: '€',
+	RUB: '₽',
+	CNY: 'CN¥',
+	PHP: '₱',
+	INR: '₹',
+	IDR: 'Rp',
+	KRW: '₩',
+	BRL: 'R$',
+	MXN: 'MX$',
+	DKK: 'KR',
+	PLN: 'zł',
+	VND: '₫',
+	TRY: '₺',
+	CLP: 'CLP',
+	ARS: 'ARS',
+	PEN: 'S/',
+	NGN: '₦',
+	SAR: 'SAR',
+	ILS: 'ILS',
+	AED: 'AED',
+	TWD: 'NT$',
+	NOK: 'kr',
+	KWD: 'KD',
+	JOD: 'JD',
+	CRC: '₡',
+	TND: 'TND',
+	SGD: 'SG$',
+	MYR: 'RM',
+	OMR: 'OMR',
+	QAR: 'QAR',
+	BHD: 'BD',
 	XGC: 'GC',
 	XSC: 'SC',
 };
@@ -30,17 +63,8 @@ export const bookEventAmountToNormalisedAmount = (bookEventAmount: number) => {
 export const numberToFloat = (value: number) => Number.parseFloat(`${value}`);
 
 export const numberToCurrencyString = (value: number) => {
-	if (stateBet.currency in NO_LOCALISATION_CURRENCY_MAP) {
-		return `${NO_LOCALISATION_CURRENCY_MAP[stateBet.currency]} ${numberToFloat(value).toFixed(2)}`;
-	}
-
-	return stateI18n.i18n.number(value, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-		style: 'currency',
-		currency: stateBet.currency,
-		// numberingSystem: 'latn',
-	});
+	const symbol = CURRENCY_SYMBOL_MAP[stateBet.currency] ?? stateBet.currency;
+	return `${symbol} ${numberToFloat(value).toFixed(2)}`;
 };
 
 export const bookEventAmountToCurrencyString = (bookEventAmount: number) => {
