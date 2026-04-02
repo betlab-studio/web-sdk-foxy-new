@@ -22,7 +22,7 @@
 		await context.stateApp.pixiApplication.init({
 			autoDensity: true,
 			backgroundAlpha: 0,
-			hello: true,
+			hello: false,
 			multiView: false,
 			antialias: true,
 			clearBeforeRender: true,
