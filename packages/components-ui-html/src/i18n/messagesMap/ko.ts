@@ -1,0 +1,23 @@
+export default {
+	BET: '베팅',
+	MAX: '최대',
+	'BET MENU': '베팅 메뉴',
+	'SELECT YOUR BET': '베팅액 선택',
+	CONFIRM: '확인',
+	'MASTER VOLUME': '마스터 볼륨',
+	'MUSIC VOLUME': '음악 볼륨',
+	'SOUND EFFECT VOLUME': '효과음 볼륨',
+	'AUTO SPINS': '자동 스핀',
+	'NUMBER OF ROUNDS': '라운드 수',
+	ADVANCED: '고급',
+	'SINGLE WIN LIMIT': '단일 승리 한도',
+	'LOSS LIMIT': '손실 한도',
+	'START AUTOPLAY': '자동 플레이 시작',
+	NOTIFICATION: '알림',
+	'AUTO PLAY HAS STOPPED DUE TO': '자동 플레이가 중지되었습니다',
+	'INSUFFICIENT FUNDS TO PLACE THIS BET. PLEASE ADD FUNDS TO YOUR ACCOUNT OR LOWER THE BET LEVEL.':
+		'이 베팅에 잔액이 부족합니다. 계정에 자금을 추가하거나 베팅 수준을 낮추세요.',
+	'LOSS LIMIT REACHED': '손실 한도 도달',
+	'SINGLE WIN LIMIT REACHED': '단일 승리 한도 도달',
+	SETTINGS: '설정',
+};

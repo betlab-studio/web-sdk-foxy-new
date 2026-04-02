@@ -1,0 +1,23 @@
+export default {
+	BET: 'दांव',
+	MAX: 'अधिकतम',
+	'BET MENU': 'दांव मेनू',
+	'SELECT YOUR BET': 'अपना दांव चुनें',
+	CONFIRM: 'पुष्टि करें',
+	'MASTER VOLUME': 'मुख्य वॉल्यूम',
+	'MUSIC VOLUME': 'संगीत वॉल्यूम',
+	'SOUND EFFECT VOLUME': 'ध्वनि प्रभाव वॉल्यूम',
+	'AUTO SPINS': 'ऑटो स्पिन',
+	'NUMBER OF ROUNDS': 'राउंड की संख्या',
+	ADVANCED: 'उन्नत',
+	'SINGLE WIN LIMIT': 'एकल जीत सीमा',
+	'LOSS LIMIT': 'हानि सीमा',
+	'START AUTOPLAY': 'ऑटोप्ले शुरू करें',
+	NOTIFICATION: 'सूचना',
+	'AUTO PLAY HAS STOPPED DUE TO': 'ऑटो प्ले रुक गया क्योंकि',
+	'INSUFFICIENT FUNDS TO PLACE THIS BET. PLEASE ADD FUNDS TO YOUR ACCOUNT OR LOWER THE BET LEVEL.':
+		'इस दांव के लिए अपर्याप्त धन। कृपया अपने खाते में धन जोड़ें या दांव का स्तर कम करें।',
+	'LOSS LIMIT REACHED': 'हानि सीमा पहुँच गई',
+	'SINGLE WIN LIMIT REACHED': 'एकल जीत सीमा पहुँच गई',
+	SETTINGS: 'सेटिंग्स',
+};

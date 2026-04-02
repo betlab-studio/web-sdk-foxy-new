@@ -1,0 +1,23 @@
+export default {
+	BET: 'ベット',
+	MAX: '最大',
+	'BET MENU': 'ベットメニュー',
+	'SELECT YOUR BET': 'ベット額を選択',
+	CONFIRM: '確認',
+	'MASTER VOLUME': 'マスターボリューム',
+	'MUSIC VOLUME': 'ミュージックボリューム',
+	'SOUND EFFECT VOLUME': '効果音ボリューム',
+	'AUTO SPINS': 'オートスピン',
+	'NUMBER OF ROUNDS': 'ラウンド数',
+	ADVANCED: '詳細設定',
+	'SINGLE WIN LIMIT': '単一勝利制限',
+	'LOSS LIMIT': '損失制限',
+	'START AUTOPLAY': 'オートプレイ開始',
+	NOTIFICATION: '通知',
+	'AUTO PLAY HAS STOPPED DUE TO': 'オートプレイが停止しました',
+	'INSUFFICIENT FUNDS TO PLACE THIS BET. PLEASE ADD FUNDS TO YOUR ACCOUNT OR LOWER THE BET LEVEL.':
+		'この賭け金を賭けるには残高が不足しています。アカウントに資金を追加するか、賭け金レベルを下げてください。',
+	'LOSS LIMIT REACHED': '損失制限に達しました',
+	'SINGLE WIN LIMIT REACHED': '単一勝利制限に達しました',
+	SETTINGS: '設定',
+};

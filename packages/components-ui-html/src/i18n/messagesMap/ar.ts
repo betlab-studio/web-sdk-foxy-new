@@ -1,0 +1,23 @@
+export default {
+	BET: 'رهان',
+	MAX: 'الحد الأقصى',
+	'BET MENU': 'قائمة الرهان',
+	'SELECT YOUR BET': 'اختر رهانك',
+	CONFIRM: 'تأكيد',
+	'MASTER VOLUME': 'مستوى الصوت الرئيسي',
+	'MUSIC VOLUME': 'مستوى الموسيقى',
+	'SOUND EFFECT VOLUME': 'مستوى المؤثرات الصوتية',
+	'AUTO SPINS': 'دوران تلقائي',
+	'NUMBER OF ROUNDS': 'عدد الجولات',
+	ADVANCED: 'متقدم',
+	'SINGLE WIN LIMIT': 'حد الفوز الفردي',
+	'LOSS LIMIT': 'حد الخسارة',
+	'START AUTOPLAY': 'بدء التشغيل التلقائي',
+	NOTIFICATION: 'إشعار',
+	'AUTO PLAY HAS STOPPED DUE TO': 'توقف التشغيل التلقائي بسبب',
+	'INSUFFICIENT FUNDS TO PLACE THIS BET. PLEASE ADD FUNDS TO YOUR ACCOUNT OR LOWER THE BET LEVEL.':
+		'أموال غير كافية لوضع هذا الرهان. يرجى إضافة أموال إلى حسابك أو خفض مستوى الرهان.',
+	'LOSS LIMIT REACHED': 'تم الوصول إلى حد الخسارة',
+	'SINGLE WIN LIMIT REACHED': 'تم الوصول إلى حد الفوز الفردي',
+	SETTINGS: 'الإعدادات',
+};

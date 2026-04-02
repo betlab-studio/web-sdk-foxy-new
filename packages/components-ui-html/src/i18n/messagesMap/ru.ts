@@ -1,0 +1,23 @@
+export default {
+	BET: 'СТАВКА',
+	MAX: 'МАКС',
+	'BET MENU': 'МЕНЮ СТАВОК',
+	'SELECT YOUR BET': 'ВЫБЕРИТЕ СТАВКУ',
+	CONFIRM: 'ПОДТВЕРДИТЬ',
+	'MASTER VOLUME': 'ОБЩАЯ ГРОМКОСТЬ',
+	'MUSIC VOLUME': 'ГРОМКОСТЬ МУЗЫКИ',
+	'SOUND EFFECT VOLUME': 'ГРОМКОСТЬ ЭФФЕКТОВ',
+	'AUTO SPINS': 'АВТОСПИНЫ',
+	'NUMBER OF ROUNDS': 'КОЛИЧЕСТВО РАУНДОВ',
+	ADVANCED: 'РАСШИРЕННЫЕ',
+	'SINGLE WIN LIMIT': 'ЛИМИТ ВЫИГРЫША',
+	'LOSS LIMIT': 'ЛИМИТ ПОТЕРЬ',
+	'START AUTOPLAY': 'НАЧАТЬ АВТОИГРУ',
+	NOTIFICATION: 'УВЕДОМЛЕНИЕ',
+	'AUTO PLAY HAS STOPPED DUE TO': 'АВТОИГРА ОСТАНОВЛЕНА ИЗ-ЗА',
+	'INSUFFICIENT FUNDS TO PLACE THIS BET. PLEASE ADD FUNDS TO YOUR ACCOUNT OR LOWER THE BET LEVEL.':
+		'НЕДОСТАТОЧНО СРЕДСТВ ДЛЯ ЭТОЙ СТАВКИ. ПОПОЛНИТЕ СЧЕТ ИЛИ УМЕНЬШИТЕ РАЗМЕР СТАВКИ.',
+	'LOSS LIMIT REACHED': 'ЛИМИТ ПОТЕРЬ ДОСТИГНУТ',
+	'SINGLE WIN LIMIT REACHED': 'ЛИМИТ ВЫИГРЫША ДОСТИГНУТ',
+	SETTINGS: 'НАСТРОЙКИ',
+};

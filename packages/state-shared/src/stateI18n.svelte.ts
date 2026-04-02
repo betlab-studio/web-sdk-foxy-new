@@ -9,9 +9,9 @@ let messages: Messages = {};
 
 export const stateI18nDerived = {
 	init: (lang: Language, msgs: Messages) => {
-		messages = msgs;
-		stateI18n.i18n.load(lang, msgs);
+		messages = msgs ?? {};
+		stateI18n.i18n.load(lang, messages);
 		stateI18n.i18n.activate(lang);
 	},
-	translate: (value: string) => (messages[value] as string) ?? value,
+	translate: (value: string) => (messages?.[value] as string) ?? value,
 };

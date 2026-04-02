@@ -66,6 +66,13 @@
 				stateConfig.betMenuOptions = stateConfig.betAmountOptions.filter((_, index) =>
 					MOST_USED_BET_INDEXES.includes(index),
 				);
+
+				// Set initial bet amount from config
+				const defaultBet = authenticateData.config?.defaultBetLevel
+					? authenticateData.config.defaultBetLevel / API_AMOUNT_MULTIPLIER
+					: stateConfig.betAmountOptions[0] ?? 1;
+				stateBet.betAmount = defaultBet;
+				stateBet.wageredBetAmount = defaultBet;
 			}
 
 			// round
