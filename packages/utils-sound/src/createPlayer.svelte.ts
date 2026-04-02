@@ -1,4 +1,4 @@
-import { Howl } from 'howler';
+import { Howl, Howler } from 'howler';
 
 import { type LoadedAudio } from 'pixi-svelte';
 import { waitForTimeout } from 'utils-shared/wait';
