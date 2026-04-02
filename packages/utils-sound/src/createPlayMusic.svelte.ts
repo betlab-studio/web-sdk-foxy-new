@@ -33,11 +33,16 @@ export function createPlayMusic<TSoundName extends string>(options: {
 
 	const resumeMusic = (sound: Sound) => {
 		pauseAllMusic();
-		options.howl.play(sound.soundId);
-		options.getSoundMap()[sound.soundName] = {
-			...sound,
-			soundState: 'playing',
-		};
+		try {
+			options.howl.play(sound.soundId);
+			options.getSoundMap()[sound.soundName] = {
+				...sound,
+				soundState: 'playing',
+			};
+		} catch {
+			// soundId no longer valid in Howler (recycled from pool), play as new
+			newMusic(sound);
+		}
 	};
 
 	const soundPlayMap = {
