@@ -19,6 +19,9 @@ export type SpinningReelSpinOptions = {
 	reelPaddingMultiplierNormal: number;
 	reelPaddingMultiplierAnticipated: number;
 	reelSpinDelay: number;
+	// easing
+	reelSpinStartEasing?: EasingFunction;
+	reelSpinStopEasing?: EasingFunction;
 };
 
 export type CascadingReelSpinOptions = {

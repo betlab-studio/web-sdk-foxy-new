@@ -64,7 +64,12 @@ export const numberToFloat = (value: number) => Number.parseFloat(`${value}`);
 
 export const numberToCurrencyString = (value: number) => {
 	const symbol = CURRENCY_SYMBOL_MAP[stateBet.currency] ?? stateBet.currency;
-	return `${symbol} ${numberToFloat(value).toFixed(2)}`;
+	// Format with thousand separators
+	const formatted = numberToFloat(value).toLocaleString('en-US', {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	});
+	return `${symbol} ${formatted}`;
 };
 
 export const bookEventAmountToCurrencyString = (bookEventAmount: number) => {
