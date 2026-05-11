@@ -24,10 +24,10 @@
 			backgroundAlpha: 0,
 			hello: false,
 			multiView: false,
-			antialias: true,
+			antialias: !/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent),
 			clearBeforeRender: true,
 			preference: /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'webgl' : 'webgpu',
-			resolution: devicePixelRatio.current,
+			resolution: Math.min(devicePixelRatio.current, 2),
 			resizeTo: window,
 		});
 
