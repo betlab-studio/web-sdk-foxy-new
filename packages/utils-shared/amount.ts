@@ -64,10 +64,17 @@ export const numberToFloat = (value: number) => Number.parseFloat(`${value}`);
 
 export const numberToCurrencyString = (value: number) => {
 	const symbol = CURRENCY_SYMBOL_MAP[stateBet.currency] ?? stateBet.currency;
-	// Format with thousand separators
-	const formatted = numberToFloat(value).toLocaleString('en-US', {
+	const floatValue = numberToFloat(value);
+	const abs = Math.abs(floatValue);
+	// Always at least 2 decimals. For tiny values (< 0.005, would round to $0.00) bump max precision
+	// so the win is visible. toLocaleString strips trailing zeros down to the minimum.
+	let maxDecimals = 2;
+	if (abs > 0 && abs < 0.1) {
+		maxDecimals = Math.min(8, Math.ceil(-Math.log10(abs)) + 1);
+	}
+	const formatted = floatValue.toLocaleString('en-US', {
 		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
+		maximumFractionDigits: maxDecimals,
 	});
 	return `${symbol} ${formatted}`;
 };
