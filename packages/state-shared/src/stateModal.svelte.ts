@@ -24,6 +24,10 @@ type ModalAutoSpin = {
 type ModalAutoSpinMessage = {
 	name: 'autoSpinMessage';
 	message: 'insufficientFunds' | 'lossLimitReached' | 'singleWinLimitReached';
+	// Source of the trigger. Defaults to 'autoplay' when omitted (preserves legacy behavior).
+	// Use 'manual' when the modal is opened by a direct spin/spacebar action so the UI can
+	// hide the autoplay-specific subtext.
+	source?: 'autoplay' | 'manual';
 };
 
 type ModalPayTable = {
