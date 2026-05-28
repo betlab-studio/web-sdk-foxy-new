@@ -36,7 +36,7 @@
     "@storybook/sveltekit": "9.0.15",
     "@sveltejs/adapter-static": "latest",
     "@sveltejs/vite-plugin-svelte": "5.0.3",
-    "pixi.js": "8.8.1"
+    "pixi.js": "8.16.0"
   },
   "type": "module"
 }
