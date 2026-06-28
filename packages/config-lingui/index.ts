@@ -2,6 +2,7 @@ import type { LinguiConfig } from "@lingui/conf";
 
 export const locales = [
   "ar",
+  "da",
   "de",
   "en",
   "es",

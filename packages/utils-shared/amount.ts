@@ -62,35 +62,35 @@ export const bookEventAmountToNormalisedAmount = (bookEventAmount: number) => {
 
 export const numberToFloat = (value: number) => Number.parseFloat(`${value}`);
 
-const MAX_CURRENCY_DECIMALS = 3;
+// Up to 4 fractional digits: the math engine rounds accumulators to 4 decimals, and a
+// sub-cent gain on any total must stay visible (bet 0.01: win 0.09 + 0.0002 = 0.0902 —
+// at a 3-decimal cap that renders "0.09" and the gain looks dropped). Display precision
+// follows the VALUE's real precision, never its magnitude: trailing zeros are stripped
+// down to 2 decimals, so cent-clean amounts still show "10.00" / "0.09" as before.
+const MAX_CURRENCY_DECIMALS = 4;
 
-// Smallest decimal precision (2..MAX_CURRENCY_DECIMALS) that preserves the fractional part
-// of `value`. Returns 2 when the value already fits in 2 decimals.
-export const detectCurrencyDecimalPrecision = (value: number) => {
+// Smallest decimal precision (2..cap) that preserves the fractional part of `value`.
+// Returns 2 when the value already fits in 2 decimals, `cap` when even `cap` digits
+// can't represent it exactly (the formatter then rounds). Count-up locks read the
+// precision here, so they stay in sync with numberToCurrencyString.
+export const detectCurrencyDecimalPrecision = (value: number, cap = MAX_CURRENCY_DECIMALS) => {
 	const abs = Math.abs(numberToFloat(value));
 	if (abs === 0) return 2;
-	for (let d = 2; d <= MAX_CURRENCY_DECIMALS; d++) {
+	for (let d = 2; d <= cap; d++) {
 		const factor = 10 ** d;
 		if (Math.abs(Math.round(abs * factor) / factor - abs) < 1e-9) return d;
 	}
-	return MAX_CURRENCY_DECIMALS;
+	return cap;
 };
 
-export const numberToCurrencyString = (value: number) => {
+// Min 2 decimals, max as many as the value actually needs (up to `maxDecimalsCap`).
+// toLocaleString strips trailing zeros down to the minimum, so "0.0902" and "0.0002"
+// render in full while "10.00" / "0.09" stay 2-decimal.
+export const numberToCurrencyString = (value: number, maxDecimalsCap = MAX_CURRENCY_DECIMALS) => {
 	const symbol = CURRENCY_SYMBOL_MAP[stateBet.currency] ?? stateBet.currency;
 	const floatValue = numberToFloat(value);
 	const abs = Math.abs(floatValue);
-	// Always at least 2 decimals, never more than MAX_CURRENCY_DECIMALS. For tiny values
-	// (< 0.1) bump precision so the win stays visible instead of rounding to $0.00. For
-	// larger values with sub-cent precision (e.g. balance 988.75 gaining a 0.006 win
-	// → 988.756) bump precision so the change is visible instead of collapsing to 2
-	// decimals. toLocaleString strips trailing zeros down to the minimum.
-	let maxDecimals = 2;
-	if (abs > 0 && abs < 0.1) {
-		maxDecimals = Math.min(MAX_CURRENCY_DECIMALS, Math.ceil(-Math.log10(abs)) + 1);
-	} else if (abs > 0) {
-		maxDecimals = detectCurrencyDecimalPrecision(abs);
-	}
+	const maxDecimals = abs > 0 ? detectCurrencyDecimalPrecision(abs, maxDecimalsCap) : 2;
 	const formatted = floatValue.toLocaleString('en-US', {
 		minimumFractionDigits: 2,
 		maximumFractionDigits: maxDecimals,
@@ -104,6 +104,8 @@ export const numberToCurrencyString = (value: number) => {
 export const numberToCurrencyStringWithFixedDecimals = (value: number, decimals: number) => {
 	const symbol = CURRENCY_SYMBOL_MAP[stateBet.currency] ?? stateBet.currency;
 	const floatValue = numberToFloat(value);
+	// Same ceiling as the auto-detected precision so a count-up locked via
+	// detectCurrencyDecimalPrecision can always render its digits.
 	const clamped = Math.max(2, Math.min(MAX_CURRENCY_DECIMALS, decimals));
 	const formatted = floatValue.toLocaleString('en-US', {
 		minimumFractionDigits: clamped,

@@ -36,11 +36,28 @@ export interface SharedAtlasConfig {
 	regions?: RegionMapping[];
 }
 
+/**
+ * Explicit source selection for a sequence injection. Use when several shared
+ * atlases map the SAME `targetBaseName` (e.g. both "bande_light" and "sphere_light"
+ * inject into "one_pixel"): `from` disambiguates which registered atlas to source from.
+ */
+export interface SequenceInjection {
+	/** Target base name expected by the skeleton (e.g., "one_pixel") */
+	target: string;
+	/** Registered shared-atlas name to source frames from (e.g., "sphere_light") */
+	from: string;
+}
+
 export interface LoadSkeletonOptions {
 	atlasPath: string;
 	imagePath: string;
 	skeletonPath: string;
-	injectSequences?: string[];
+	/**
+	 * Sequences to inject. A plain string uses the first registered atlas that maps
+	 * that target (legacy behaviour). Use `{ target, from }` to pin a specific source
+	 * atlas when several map the same target.
+	 */
+	injectSequences?: Array<string | SequenceInjection>;
 	/** Individual region names to inject */
 	injectRegions?: string[];
 	scale?: number;
@@ -106,7 +123,23 @@ export class SharedAtlasManager {
 
 	private findAtlasForSequence(
 		targetBaseName: string,
+		fromName?: string,
 	): { atlas: TextureAtlas; mapping: SequenceMapping } | null {
+		// Explicit source atlas: resolve mapping + atlas from that registration only.
+		// Required when several atlases map the same target (the global maps would collide).
+		if (fromName) {
+			const atlas = this.sharedAtlases.get(fromName);
+			const config = this.configs.get(fromName);
+			const mapping = config?.sequences?.find((s) => s.targetBaseName === targetBaseName);
+			if (atlas && mapping) {
+				return { atlas, mapping: { ...mapping, startIndex: mapping.startIndex ?? 0 } };
+			}
+			console.warn(
+				`[SharedAtlasManager] Sequence "${targetBaseName}" not found in atlas "${fromName}"`,
+			);
+			return null;
+		}
+
 		const mapping = this.sequenceMappings.get(targetBaseName);
 		if (!mapping) return null;
 
@@ -179,8 +212,8 @@ export class SharedAtlasManager {
 		return injectedCount;
 	}
 
-	injectSequence(targetAtlas: TextureAtlas, targetBaseName: string): number {
-		const found = this.findAtlasForSequence(targetBaseName);
+	injectSequence(targetAtlas: TextureAtlas, targetBaseName: string, fromName?: string): number {
+		const found = this.findAtlasForSequence(targetBaseName, fromName);
 		if (!found) {
 			console.warn(`[SharedAtlasManager] Sequence "${targetBaseName}" not found in mappings`);
 			return 0;
@@ -228,8 +261,12 @@ export class SharedAtlasManager {
 		const skeletonAtlas = await this.loadAtlas(options.atlasPath, options.imagePath);
 
 		if (options.injectSequences) {
-			for (const sequenceName of options.injectSequences) {
-				this.injectSequence(skeletonAtlas, sequenceName);
+			for (const item of options.injectSequences) {
+				if (typeof item === 'string') {
+					this.injectSequence(skeletonAtlas, item);
+				} else {
+					this.injectSequence(skeletonAtlas, item.target, item.from);
+				}
 			}
 		}
 

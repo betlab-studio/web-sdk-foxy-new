@@ -3,12 +3,16 @@
 > Ce document sert de guide pour transformer le projet cactus-cash en no-mercy-at-down.
 > Il peut être réutilisé comme template pour d'autres projets de slot.
 
+> ⚠️ **DOCUMENT VIVANT — en constante évolution.** À **chaque imprécision rencontrée** ou **nouvel élément important** découvert pendant la construction (général, réutilisable pour tous les projets), **l'ajouter ou mettre à jour ici**. Garder le contenu généraliste (pas de specifics propres à un seul jeu — ceux-là vont dans le `CLAUDE.md` du projet concerné).
+
 ---
 
 ## 📋 TABLE DES MATIÈRES
 
 ### Règles & Références Critiques
 - [⚠️ RÈGLE CRITIQUE - À SUIVRE POUR CHAQUE PHASE](#️-règle-critique---à-suivre-pour-chaque-phase)
+- [⚠️ SOURCE DE VÉRITÉ - MOTEUR MATH (rgs/config.ts)](#️-source-de-vérité---moteur-math-rgsconfigts)
+- [⚠️ BOOTSTRAP D'UN NOUVEAU PROJET DEPUIS UN APP EXISTANT](#️-bootstrap-dun-nouveau-projet-depuis-un-app-existant)
 - [⚠️ DÉTECTION DES TYPES D'AFFICHAGE (LAYOUT)](#️-détection-des-types-daffichage-layout)
 - [⚠️ RESPONSIVE LAYOUT - POSITIONNEMENT D'ÉLÉMENTS](#️-responsive-layout---positionnement-déléments-sur-lécran)
 - [⚠️ BOOK EVENTS - Documentation](#️-book-events---documentation)
@@ -56,6 +60,62 @@
 >
 > **NE JAMAIS** supposer quels assets existent ou comment ils doivent être utilisés.
 > Chaque jeu a ses propres conventions et nommages.
+
+---
+
+## ⚠️ SOURCE DE VÉRITÉ - MOTEUR MATH (rgs/config.ts)
+
+> **AVANT de remplir `src/game/rgs/config.ts` (Phase 1), TROUVER et LIRE le projet moteur math du jeu.**
+>
+> Chaque jeu front a un projet math jumeau (sibling) nommé `<jeu>-math` (ex: `no-mercy-at-dawn-math`, `royale-cake-math`), situé à côté du monorepo web-sdk (ex: `stake_engine_projects/<jeu>-math`).
+>
+> **`rgs/config.ts` du front DOIT être un miroir de la config du moteur.** Sinon le play RGS en live ET le replay cassent : les clés de mode et ids de symboles doivent matcher **exactement**.
+
+Fichiers du moteur à lire et leur correspondance front :
+
+| Fichier moteur | Contenu | → Front (`rgs/config.ts`) |
+|---|---|---|
+| `index.ts` → `defineGameModes` | clés + coûts des bet modes | `betModes` |
+| `index.ts` → `defineSymbols` | ids symboles + `pays` + `properties` | `symbols` (paytable + special_properties) |
+| `index.ts` → `createSlotGame` | `maxWinX`, `scatterToFreespins` | maxWin, triggers FS |
+| `src/paylines.ts` | les paylines | `paylines` |
+| `src/reels.ts` | poids symboles par reel set | (info ; padding front = visuel seulement) |
+| `src/onHandleGameFlow.ts` | book events émis | types + handlers (Phase 3) |
+
+> **Identifiants couplés au moteur — NE JAMAIS deviner, toujours copier du moteur** : clés de bet mode (envoyées à RGS), ids de symboles, `special_properties`.
+
+### Bet mode plumbing (général)
+
+- `config.betModes` keys = chaînes de mode envoyées au RGS → **doivent matcher les `gameModes` du moteur** (souvent lowercase : `base`, `ante`, `bonus1`…).
+- `BetMode = keyof typeof config.betModes` (`types.ts`).
+- `betModeMeta` (`config/betModeMeta.ts`) = métadonnées UI. Lookup via `stateMeta.betModeMeta[key.toUpperCase()] ?? [key.toLowerCase()]` (`state-shared/stateBet.svelte.ts`) → **tolère la casse**. Le champ `mode` de chaque entrée = la clé moteur.
+- ⚠️ Garder identiques : `config.betModes` keys, les `mode` de `betModeMeta`, et la clé envoyée à RGS.
+
+### paddingReels (général)
+
+- `config.paddingReels` keyed par gameType (`GameType = keyof typeof config.paddingReels`, ex: `basegame`/`freegame`).
+- = **filler visuel pendant le spin** (board-reveal `paddingPositions` indexe dedans), PAS un résultat. Le vrai board vient des book events.
+- Peut être remplacé par des strips compacts (assez de symboles pour couvrir les indices `paddingPositions`). N'utiliser que des symboles présents dans `config.symbols`.
+
+---
+
+## ⚠️ BOOTSTRAP D'UN NOUVEAU PROJET DEPUIS UN APP EXISTANT
+
+> Méthode pour démarrer un nouveau jeu front à partir d'un app fonctionnel du monorepo (code de base).
+
+1. **Copier** l'app source → `apps/<nouveau>`, en **excluant** : `.git`, `.svelte-kit`, `.turbo`, `build`, `node_modules` (+ gros `.md` dupliqués si besoin). Préserver les docs déjà présents dans le dossier cible.
+2. **Renommer** dans `package.json` : `name` + port `dev` (chaque app a un port unique — éviter la collision).
+3. `pnpm install` à la **racine du monorepo** (le workspace `apps/*` inclut auto le nouveau dossier).
+4. `pnpm dev` et vérifier le boot (HTTP 200) avant d'adapter quoi que ce soit.
+
+### Dépendances workspace + updates SDK
+
+- Les deps de l'app sont `workspace:*` → elles **suivent automatiquement** les packages SDK (`packages/*`). Une mise à jour SDK ne nécessite **pas** de toucher le `package.json` de l'app, juste `pnpm install`.
+- Le runtime **Spine** vit dans `packages/pixi-svelte` (`@esotericsoftware/spine-*`), pas dans l'app. Consommé via `pixi-svelte: workspace:*`. → Une "nouvelle version de Spine dans le SDK" ne change rien côté app.
+
+### Dev = pas de type-check
+
+- Le dev server (esbuild) **ne type-check pas**. On peut changer la couche config (unions `SymbolName`/`BetMode`) et booter même si des composants features réfèrent encore d'anciens symboles/modes — ces erreurs n'apparaissent qu'au `build`/`lint`. → **Adapter la config d'abord, nettoyer les features ensuite.**
 
 ---
 
@@ -278,6 +338,40 @@ const clickY = $derived(canvasSizes.height * (1 - clickBottomPercent));
 - Pas besoin de valeurs spécifiques par type d'écran
 - Position proportionnelle à la taille de l'écran
 
+### ⚠️ Le `layoutType` "desktop" couvre PLUSIEURS ratios → mode "wideDesktop" (plein écran + barre navigateur)
+
+> **Piège réel.** Un même `layoutType` (ex. `desktop`) couvre **plusieurs ratios** d'écran. Le `mainLayout` desktop est figé à **1920×1080** et le jeu est cadré par `scale = min(cw/1920, ch/1080)`. Si le ratio n'est **pas** 16:9, le jeu est **letterboxé** : il rétrécit selon la dimension limitante et est centré.
+
+**Cas concret** : plein écran **avec la barre du navigateur** (Chrome) → canvas **1920×911** (pas 1080), ratio **2.11**. Toujours `layoutType = desktop`, mais le jeu se cadre par la **hauteur** → `scale = 911/1080 = 0.843`, le board rétrécit ~16% et est centré horizontalement. Les valeurs de placement calibrées pour 1920×1080 ne collent plus.
+
+**Détecter ce sous-mode** (desktop plus large que 16:9 = hauteur réduite) :
+```typescript
+const canvasRatio = $derived(context.stateLayoutDerived.canvasRatio());
+const isWideDesktop = $derived(layoutType === 'desktop' && canvasRatio > 16 / 9 + 0.02); // ε garde 1080 exact en "desktop"
+```
+
+**Deux familles d'éléments, deux traitements** :
+
+**A. Élément collé au board (full asset : mascotte, badge sur la grille…)** → **espace board** (`mainLayout`, dans un `<MainContainer>`). Il scale/bouge avec le board à tous les ratios automatiquement. Ajouter une **branche `wideDesktop`** seulement si on veut affiner son placement quand l'écran est court. Réf : `Character.svelte`.
+
+> ⚠️ **Exception MOBILE (portrait) pour un élément board placé HORS de la grille** (mascotte sur le côté/au-dessus). En portrait le board est cadré sur la **largeur** (`scale = cw/1080`), donc l'espace board virtuel (1920 de haut) **déborde verticalement** : sur un tél **plus court**, le bas (ou le haut) du virtuel est hors écran → un élément board-space calibré pour le grand tél **sort de l'écran** sur les plus petits. Fix : sur mobile **uniquement**, basculer cet élément en **espace écran** — `scale ∝ canvas.height`, position en **% du canvas** → il tient toujours, quel que soit le tél. Conséquence : son `<MainContainer>` est retiré en mobile (il rend en coords canvas) et un mount conditionnel sépare mobile (sans MainContainer) / desktop (avec). Réf : `Character.svelte` (branche `isMobile`).
+
+**B. Décor collé au BORD écran, surtout si l'asset est un CROP PARTIEL (rock de coin, cadre…)** → **espace écran** (`canvasSizes`), ancré au vrai coin. Un asset partiel **ne doit PAS** aller en espace board (le letterbox le rentrerait à l'intérieur, révélant le bord du crop) ni être scalé par un simple `canvas.width/REFERENCE_WIDTH`. Donner **un jeu de valeurs `{scale, margins}` PAR mode** (desktop / wideDesktop / popout), calibrés indépendamment. Réf : `Rock.svelte`.
+
+```typescript
+// B — décor de coin, partiel : espace écran + valeurs par mode
+const MODE = $derived.by(() => {
+    if (isPopout)      return { scale: 0.5,  right: -0.05, bottom: -0.05 };
+    if (isWideDesktop) return { scale: 0.6,  right:  0.0,  bottom: -0.15 }; // 1920x911 (barre navigateur)
+    return                    { scale: 0.6,  right: -0.04, bottom: -0.07 }; // 1920x1080
+});
+const x = $derived(canvas.width  * (1 - MODE.right));   // ancré au VRAI coin écran
+const y = $derived(canvas.height * (1 - MODE.bottom));
+const scale = $derived(MODE.scale * (canvas.width / 1920)); // facteur=1 aux cibles 1920-larges → MODE.scale = scale visible
+```
+
+> **Pourquoi pas un fit-scale unique (`mainLayout().scale`) pour tout ?** Ça marche pour un élément qui doit rester proportionnel au board, mais **pas** pour un crop partiel qui doit toucher le vrai bord écran : sa position ET sa taille diffèrent réellement entre 1080 et 911, pas seulement d'un facteur. D'où **un mode par ratio**, calibré à la main.
+
 ### Exemple complet
 
 Voir `src/components/freespin/FreeSpinAnimation.svelte` pour une implémentation complète.
@@ -435,6 +529,31 @@ Les types réservés pour le snapshot sont dans `BOOK_EVENT_TYPES_TO_RESERVE_FOR
 > 1. Regarder le fichier `.atlas` - contient-il toutes les régions ?
 > 2. Si une région manque (ex: one_pixel, X2_R), elle doit être injectée
 > 3. Créer un Loader dédié qui utilise `sharedAtlasManager.loadSpine()`
+>
+> **Comment trouver QUELLE région injecter (sans deviner) :** scanner les skeletons `.json` pour les noms d'attachments/régions absents de l'atlas du skeleton. Ex (Node) : parcourir `skins[].attachments[slot][name]`, retenir `path||name`, comparer aux régions de l'`.atlas`. Le **nom de la cible** = ce que le runtime résout (souvent l'attachment, pas le slot ; une séquence `one_pixel` résout `one_pixel0,1,…`).
+
+### Plusieurs sources → MÊME cible (sélection par symbole)
+
+> **Cas :** des symboles différents veulent la même région cible (ex. tous cherchent `one_pixel`) mais depuis des **atlas sources différents** (ex. `bande_light` vs `sphere_light`).
+>
+> Le mapping global du manager est keyé par `targetBaseName` → deux atlas sur la même cible **collisionnent** (l'un écrase l'autre). Pour lever l'ambiguïté, `loadSpine` accepte une **source explicite par appel** :
+>
+> ```typescript
+> // Enregistrer les 2 atlas, MÊME targetBaseName 'one_pixel'
+> await sharedAtlasManager.registerSharedAtlas('bande_light',  { atlasPath, imagePath, sequences:[{ sourceBaseName:'band_light_',   targetBaseName:'one_pixel', frameCount:31 }] });
+> await sharedAtlasManager.registerSharedAtlas('sphere_light', { atlasPath, imagePath, sequences:[{ sourceBaseName:'sphere_light_', targetBaseName:'one_pixel', frameCount:37 }] });
+>
+> // Choisir la source par symbole via { target, from }
+> await sharedAtlasManager.loadSpine({ …, injectSequences:[{ target:'one_pixel', from:'sphere_light' }] }); // casque, boule_elec
+> await sharedAtlasManager.loadSpine({ …, injectSequences:[{ target:'one_pixel', from:'bande_light'  }] }); // cartes, star, bonus
+> ```
+>
+> - `injectSequences` accepte `string` (legacy : 1ʳᵉ source enregistrée pour la cible) **ou** `{ target, from }` (source pinée par nom d'atlas enregistré). Rétrocompatible.
+> - Type `SequenceInjection` exporté depuis `pixi-svelte`.
+> - Implémentation : `packages/pixi-svelte/src/lib/SharedAtlasManager.ts` (`findAtlasForSequence(target, fromName?)`).
+>
+> **⚠️ Pas que les symboles** : n'importe quel spine peut référencer `one_pixel` (perso/character, **win-text max**, effets…). Si son `.atlas` n'a pas la région → l'erreur `Region not found: one_pixel0` apparaît, et si chargé via `assets.ts` (AssetsLoader) ça **bloque `stateApp.loaded`** → stuck au loading. → charger ces spines via `SymbolsLoader`/`SharedAtlasManager` avec injection, **jamais** dans `assets.ts`.
+> **Choisir band vs sphere sans deviner** : lire le **`count` de la séquence `one_pixel`** dans le skeleton `.json` (`skins[].attachments[slot].one_pixel.sequence.count`). **31 → band_light**, **37 → sphere_light**. (Space Mania : poisson=37→sphere ; max_win=31→band ; cartes L1-5/star/bonus=31→band ; casque/boule_elec=37→sphere.)
 
 ---
 
@@ -1307,6 +1426,73 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 > **Fichiers à convertir:**
 > - `symboles_static/static_symbols.atlas` → `static_symbols.json`
 > - `pack_chiffres/pack_number.atlas` → `pack_number.json` (si utilisé comme spritesheet, sinon SharedAtlasManager)
+>
+> ---
+>
+> ### Mapping des champs libgdx → PixiJS
+>
+> Une région libgdx :
+> ```
+> <nom_region>
+> bounds:x,y,w,h            # position + taille dans l'atlas
+> offsets:ox,oy,ow,oh       # (optionnel) trim : décalage + taille ORIGINALE (avant trim)
+> rotate:90                 # (optionnel) région tournée
+> ```
+>
+> | libgdx | PixiJS | Règle |
+> |--------|--------|-------|
+> | `bounds:x,y,w,h` | `frame: {x,y,w,h}` | copie directe |
+> | (pas d'`offsets`) | `trimmed:false`, `sourceSize:{w,h}`, `spriteSourceSize:{0,0,w,h}` | région pleine |
+> | `offsets:ox,oy,ow,oh` | `trimmed:true`, `sourceSize:{w:ow,h:oh}`, `spriteSourceSize:{x:ox,y:oy,w:bw,h:bh}` | `sourceSize` = taille ORIGINALE (`ow,oh`) ; `spriteSourceSize` = offset libgdx (`ox,oy`) + taille troncée (`bw,bh` des bounds) |
+> | `rotate:90`/`true` | `rotated:true` | sinon `false` |
+> | header `size:w,h` | `meta.size:{w,h}` | |
+> | header `scale:` (ou absent) | `meta.scale` (`"1"` par défaut) | **pas** appliqué aux coords |
+> | 1ʳᵉ ligne (nom image) | `meta.image` | **garder l'extension réelle** (`.png` ou `.webp`) |
+>
+> > ⚠️ `pma:true` dans le header (premultiplied alpha) → ignoré côté JSON, la texture vient du `.png`/`.webp`.
+> > ⚠️ `meta.image` doit pointer le **vrai** fichier image à côté du `.json` (même nom que dans l'`.atlas`).
+>
+> ### Convertisseur réutilisable (Node, tous projets)
+>
+> Script `atlas2json.mjs` — parse n'importe quel `.atlas` libgdx → spritesheet PixiJS. Lance : `node atlas2json.mjs <in.atlas> <out.json>`.
+>
+> ```js
+> import { readFileSync, writeFileSync } from 'node:fs';
+> const [, , inPath, outPath] = process.argv;
+> const lines = readFileSync(inPath, 'utf8').split(/\r?\n/);
+> const HEADER_KEYS = new Set(['size', 'format', 'filter', 'repeat', 'pma', 'scale']);
+> const image = lines[0].trim();
+> const meta = { scale: '1' };
+> const frames = {};
+> let i = 1;
+> for (; i < lines.length; i++) {
+>   const line = lines[i];
+>   if (line.trim() === '') continue;
+>   const idx = line.indexOf(':');
+>   if (idx === -1) break; // 1ʳᵉ région
+>   const key = line.slice(0, idx).trim();
+>   if (!HEADER_KEYS.has(key)) break;
+>   const val = line.slice(idx + 1).trim();
+>   if (key === 'size') { const [w, h] = val.split(',').map((n) => parseInt(n, 10)); meta.size = { w, h }; }
+>   else if (key === 'scale') meta.scale = val;
+> }
+> const nums = (s) => s.split(',').map((n) => parseInt(n.trim(), 10));
+> while (i < lines.length) {
+>   const name = lines[i].trim(); i++;
+>   if (name === '') continue;
+>   const attrs = {};
+>   while (i < lines.length && lines[i].includes(':')) { const l = lines[i]; const k = l.indexOf(':'); attrs[l.slice(0, k).trim()] = l.slice(k + 1).trim(); i++; }
+>   if (!attrs.bounds) continue;
+>   const [bx, by, bw, bh] = nums(attrs.bounds);
+>   const rotated = attrs.rotate === 'true' || attrs.rotate === '90';
+>   let trimmed = false, sourceSize = { w: bw, h: bh }, spriteSourceSize = { x: 0, y: 0, w: bw, h: bh };
+>   if (attrs.offsets) { const [ox, oy, ow, oh] = nums(attrs.offsets); trimmed = true; sourceSize = { w: ow, h: oh }; spriteSourceSize = { x: ox, y: oy, w: bw, h: bh }; }
+>   frames[name] = { frame: { x: bx, y: by, w: bw, h: bh }, rotated, trimmed, spriteSourceSize, sourceSize };
+> }
+> writeFileSync(outPath, JSON.stringify({ frames, meta: { image, size: meta.size, scale: meta.scale } }, null, '\t') + '\n');
+> ```
+>
+> **Après conversion** : déclarer en `type: 'sprites'` dans `assets.ts` (clé = ex. `staticSymbols`), pointer le `.json`. Le loader pixi-svelte (`PROCESS_METHOD_MAP.sprites = rawAsset.textures`) éclate le spritesheet : **chaque nom de frame devient une clé dans `loadedAssets`**, donc `<Sprite key="<nom_region>">` la résout directement. → Dans `SYMBOL_INFO_MAP`, les `assetKey` static = **noms de régions** de l'atlas (pas `H1_static` si l'atlas nomme par thème).
 
 ---
 
@@ -1324,6 +1510,8 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 ---
 
 ## Phase 1 - Configuration de Base
+
+> ⚠️ **Les valeurs ci-dessous sont des EXEMPLES (no-mercy).** Pour chaque nouveau jeu, dériver paylines / paytable / symboles / bet modes du **moteur math** — voir [⚠️ SOURCE DE VÉRITÉ - MOTEUR MATH](#️-source-de-vérité---moteur-math-rgsconfigts).
 
 ### 1.1 Board Config
 - [ ] **Fichier**: `src/game/config/constants.ts`
@@ -1616,8 +1804,67 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 
 ### 4.1 Background
 - [ ] **Fichier**: `src/components/Background.svelte`
-- [ ] Remplacer par Spine animé
-- [ ] Utiliser `background_animation/background.json`
+- [ ] Deux patterns possibles selon les assets livrés :
+
+> **🔁 Pattern réutilisable — Background statique vs animé**
+>
+> **A. Statique** (pattern royale-cake / Space Mania) — un seul `.webp` plein écran, éventuellement + une couche `rock`/foreground en `.webp` à alpha :
+> - Monté **hors `MainContainer`** (espace canvas, pas board), via `canvasSizes()`.
+> - Fit "cover" : `scale = Math.max(canvas.width / IMG_W, canvas.height / IMG_H)`, `anchor 0.5`, centré.
+> - `Rectangle` noir backstop en `zIndex:-4`, bg en `-3`, foreground rock en `-2`.
+> - Asset : `type: 'sprite'`, `preload: true`. Pas de spine.
+> ```svelte
+> <Rectangle {...canvas} backgroundColor={0x000000} zIndex={-4} />
+> <Sprite key="gameBackground" anchor={0.5} x={canvas.width/2} y={canvas.height/2} scale={bgScale} zIndex={-3} />
+> <Sprite key="bgRock"        anchor={0.5} x={canvas.width/2} y={canvas.height/2} scale={bgScale} zIndex={-2} />
+> ```
+> **B. Spine animé** (pattern no-mercy) — deux `SpineProvider` (base/bonus) en crossfade alpha (`Tween`), `animationName` par gameType. Utiliser **seulement si** des skeletons de fond sont livrés.
+>
+> Choisir A si le graphiste ne livre que des `.webp` de fond ; B si un skeleton de background existe.
+
+### 4.1bis Transition (pattern royale-cake — À REPRODUIRE 1:1)
+
+> **🔁 Pattern réutilisable — Transition plein écran (wipe)**
+>
+> **Toujours faire comme royale-cake** (pas comme no-mercy : no-mercy joue le son dans le contrôleur et a une géométrie différente). Un **seul skeleton, une seule animation `'animation'`** ; les 3 moments (intro / base→bonus / bonus→base) jouent la **même** anim — c'est le flux autour qui change.
+>
+> **Asset** (`assets.ts`) : `transition` = `type:'spine'`, atlas + skeleton du dossier `transition/`. `scale` selon l'art (royale=2 ; convention projet =1).
+>
+> **2 composants** :
+> - `TransitionAnimation.svelte` — renderer. `SpineProvider key="transition"`, `zIndex={1000}`, 1 `SpineTrack` trackIndex 0 `animationName='animation'`, listener `complete → oncomplete`. Pas de backdrop noir (le wipe couvre tout par son art).
+>   - ⚠️ **Sizing dépend de l'art** : royale `x=w/2, y=h*0.3, height=h*0.56` (son art est calibré pour remplir à cette hauteur). Si le skeleton transi du projet a une **autre taille** (vérifier `skeleton.width/height` du `.json`), il ne couvrira pas. L'AABB transi a souvent du **vide autour de l'art visible** → un fit `width/height = canvas` rend l'art **trop petit**. Solution : centrer (`x=w/2, y=h/2`) + `width=canvas.width*FILL_BOOST`, `height=canvas.height*FILL_BOOST`, **`FILL_BOOST` calibré à l'œil** (hot reload, via `DEBUG=true` dans `Transition.svelte` pour l'afficher en continu, puis remettre `false`). Space Mania : transi 4383×3009, **`FILL_BOOST = 2.5`**.
+> - `Transition.svelte` — contrôleur. Exporte `EmitterEventTransition = { type: 'transition' }`. `subscribeOnMount({ transition: async () => { transitioning = true; await waitForResolve(r => oncomplete = r); } })`. `{#if transitioning}{#key animationKey}<TransitionAnimation oncomplete={handleComplete}/>`. **Async-bloquant** : le `broadcastAsync` ne résout qu'au `complete` de la spine. **Aucun son ici.**
+>
+> **Montage** : `<Transition />` = **dernier enfant de `<App>`**, hors des branches `{#if loading}` (dispo pendant le loading pour l'intro). zIndex 1000 → au-dessus de tout.
+>
+> **Type emitter** : ajouter `EmitterEventTransition` à l'union dans `typesEmitterEvent.ts`.
+>
+> **Pattern de déclenchement (identique aux 3 sites)** :
+> ```ts
+> // (option) await broadcastAsync({ type: 'uiHide' })
+> broadcast({ type: 'soundOnce', name: 'sfx_transition' });        // son au CALL SITE
+> const p = broadcastAsync({ type: 'transition' });                 // démarre le wipe
+> await new Promise(r => setTimeout(r, 1300));                       // attendre que ça couvre (fixe, NON turbo-scalé)
+> stateGame.gameType = 'freegame';                                  // swap CACHÉ derrière le wipe (+ bg/musique)
+> await p;                                                           // attendre la fin (uncover)
+> ```
+> - **Intro** : depuis `LoadingScreen` (sur "press to continue") → après le sleep 1300, appeler `props.onloaded()` (révèle le board pré-monté en `alpha 0`) puis `await p`.
+> - **base→bonus / bonus→base** : depuis `bookEventHandlerMap.ts`. bonus→base swap aussi la musique (`bgm_main`).
+> - ⚠️ **PAS de transition sur retrigger FS** (déjà en freegame).
+> - Board pré-monté invisible (`<Container alpha={showLoadingScreen ? 0 : 1}>`) pour éviter un freeze pendant le wipe.
+>
+> **Statut Space Mania** : système (asset + 2 composants royale-exact + montage + type) en place. **Câblage des 3 call-sites en attente** : intro = rework loading-flow ; base↔bonus = handlers Phase 3.
+
+### 4.1ter ❓ QUESTION À POSER À L'USER — Page de règles / flux de lancement
+
+> Demander **dès le début** : *le projet a-t-il une page de règles (rules page) entre le loading et le jeu, ou pas ?*
+>
+> - **Avec rules page** (no-mercy) : `LoadingScreen.onloaded` → `showLoadingScreen=false` + `showRulesPage=true` → `<RulesPage oncontinue=...>` → puis le contenu de jeu. Le clic sur la page débloque l'AudioContext (geste utilisateur requis pour le son).
+> - **Sans rules page** (royale-cake / **Space Mania**) : `LoadingScreen.onloaded` → `showLoadingScreen=false` → **contenu de jeu direct**. Pas de `showRulesPage`, pas d'import `RulesPage`, gate de contenu = `allAssetsLoaded && !showLoadingScreen`. (Le déblocage audio se fait alors au 1er clic / via le press-to-continue du loading.)
+>
+> Retirer proprement : la variable `showRulesPage`, l'import + le mount `RulesPage`, et `&& !showRulesPage` dans la gate.
+>
+> ⚠️ **Gotcha AudioContext** : si on retire la rules page SANS mettre le **press-to-continue** du loading, le son auto-play (musique dans `Sound.svelte`) part **sans geste utilisateur** → bloqué Chrome (`The AudioContext was not allowed to start`). Le modèle royale exige le press-to-continue : `LoadingScreen` montre un sprite `pressContinue` pulsant quand `isAllLoaded`, + `<PressToContinue onpress={startTransition}/>` (`OnPressFullScreen` + `OnHotkey Space`). Le clic/Espace = le geste qui débloque l'AudioContext ; `startTransition` enchaîne sfx + transition intro + `onloaded`. `<Sound/>` doit être monté **après** `!showLoadingScreen` (donc après le geste).
 
 ### 4.2 Board
 - [ ] **Fichier**: `src/components/board/Board.svelte`
@@ -1625,8 +1872,31 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 - [ ] Vérifier le calcul des positions
 
 ### 4.3 BoardFrame
-- [ ] **Fichier**: `src/components/board/BoardFrame.svelte`
-- [ ] Utiliser `board_animation/board.json`
+
+> **❓ QUESTION À POSER À L'USER EN DÉBUT DE PROJET — Type de board-reveal**
+>
+> Avant de câbler `BoardFrame`, **demander quel modèle de reveal** le projet utilise (dépend des assets livrés) :
+>
+> - **Modèle A — entrée/sortie animée (no-mercy)** : le board a 2 anims `animation_start` (descente) / `animation_end` (remontée). `BoardFrame` a une state-machine `hidden→animating_start→visible→animating_end`, broadcast `boardReady` à la fin de `animation_start`. Reveal base↔bonus = ces anims. **PAS de transition plein écran.**
+> - **Modèle B — board permanent + transition (royale-cake)** : le board n'a **pas** d'anim d'entrée/sortie. Soit un `Sprite` statique (royale), soit un **Spine qui loope une seule anim `animation`** (Space Mania). Il est **toujours affiché**. Le reveal intro + base↔bonus est fait par la **Transition plein écran** (cf §4.1bis). Le swap `gameType`/bg se fait **caché derrière le wipe** (au point de couverture ~1300ms).
+>
+> **Câblage Modèle B** (Space Mania) :
+> - `BoardFrame` : rendu toujours, `<SpineTrack animationName="animation" loop={true} />`. `boardKey='board'` (skeleton unique, pas de split mobile).
+> - Garder les events `boardAnimationStart`/`boardAnimationEnd` MAIS les résoudre **instantanément** (broadcast `boardReady`/`boardNotReady` direct, **aucune** anim) — le flux game-start + handlers bonus les broadcast encore, donc ne pas les supprimer.
+> - Le board n'a **pas** de gate "attendre la descente" : seul `allAssetsLoaded` + les promesses `enhancedBoard.preSpin/spin` gardent le spin.
+> - `Anticipation` : 1 seul track `animationName="animation"` loop (pas `anticipation`+`new` de no-mercy).
+> - ⚠️ Vérifier les **noms d'anim réels** du skeleton livré (`payline` = `1..15`, `board`/`anticipation` = `animation` en Space Mania) avant de câbler — ne jamais supposer.
+
+### 4.3bis ⚠️ Version Spine — runtime vs exports (gotcha réutilisable)
+
+> Le runtime (`@esotericsoftware/spine-pixi-v8` + `spine-core`, voir `package.json`) et **chaque skeleton exporté doivent être compatibles en version**. Vérifier le champ `skeleton.spine` de chaque `.json` :
+> ```bash
+> python -c "import json,glob;[print(json.load(open(f))['skeleton'].get('spine','?'),f) for f in glob.glob('static/assets/**/*.json',recursive=True) if isinstance(json.load(open(f)).get('skeleton'),dict)]"
+> ```
+> - Un runtime **4.3** lit le **4.3** et rétro-lit le **4.2 sans path constraints**. Mais un skeleton **4.2 AVEC path constraints** **désync** sur un runtime 4.3 → erreur `Path constraint not found: <nom>` dans `readAnimation` (le parser lit un mauvais compteur). Symptôme typique de version mismatch.
+> - Pendant la **beta 4.3**, le format JSON a changé **entre patches** (4.3.08 / 4.3.17 ≠ 4.3.3) — viser **une seule version** runtime + tous les exports.
+> - **Action si erreurs** : aligner. Soit bumper le runtime sur la version des exports, soit réexporter tous les skeletons sur la version du runtime. Ne pas mélanger.
+> - Space Mania : runtime **4.3.3** ; assets réels **4.3.08/4.3.17** (OK structurellement) ; les `export_final` **4.2.43 avec path constraints** (payline/anticipation) plantaient → résolus en repointant vers les vrais assets 4.3.
 
 ### 4.4 Symbol
 - [ ] **Fichier**: `src/components/symbol/Symbol.svelte`
@@ -1638,15 +1908,48 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 - [ ] Adapter pour grille 5x5
 - [ ] Utiliser nouvel asset sticky wild
 
+### 4.5bis FreeSpinCounter ("free spins left")
+
+> **🔁 Pattern réutilisable — compteur FS (royale-cake)**
+>
+> Copier `royale-cake/components/freespin/FreeSpinCounter.svelte` tel quel. Affiche un fond + 2 chiffres (dizaines/unités) du nb de FS restants.
+> - **Assets** : `freeSpinsLeft` (`type:'sprite'`, fond/label) + `numbers` (`type:'sprites'` → spritesheet pixi `numbers.json`, frames `roulette_0..9` + `roulette_comma/dot/x`). Les clés chiffres = `` `roulette_${digit}` `` (résolues par le loader sprites).
+> - **State local** : `show`/`current`/`total` mis à jour par les events `freeSpinCounterShow`/`Hide`/`Update{current,total}` (déjà broadcast par `bookEventHandlerMap`). `freeSpinsLeft = max(0, total-current)`.
+> - **Type** : exporter `EmitterEventFreeSpinCounter` + l'ajouter à l'union `typesEmitterEvent.ts`.
+> - **Montage** : `<FreeSpinCounter/>` dans `Game.svelte` (près de FreeSpinIntro/Outro). Placement responsive (mobile/popout/desktop) + `frameScale` calibrable.
+> - ⚠️ Si le `.atlas` libgdx des chiffres n'est pas déjà converti, le convertir en spritesheet pixi `.json` (cf §CONVERSION ATLAS). Space Mania : `numbers/numbers.json` déjà au format pixi.
+
 ### 4.6 HudPixi
 - [ ] **Fichier**: `src/components/hud/HudPixi.svelte`
-- [ ] Remplacer tous les assets par ceux de `layout/`
-- [ ] Ajouter bouton ANTE (copier logic de royale-cake)
-- [ ] Gérer l'état `isFeatureActive` pour toggle ANTE
+
+> **🔁 Pattern réutilisable — Porter le HUD depuis un projet frère**
+>
+> Le HUD se **copie depuis un projet existant** (`royale-cake-front/src/components/hud/`) plutôt que réécrit. Fichiers : `HudPixi.svelte` (composition top-level montée par `Game.svelte`) + sous-panneaux `HudBetPanel`, `HudAutoPlayPanel`, `HudVolumePopover`, `HudMobileMenu`, `HudSpeedButton`.
+>
+> **Découplage assets ↔ code** : le code et les assets peuvent venir de projets différents. Ex Space Mania = code royale-cake + assets PNG cactus-cash (`static/assets/hud/`). Les clés `assets.ts` (`hudPlay`, `hudBonus`, `hudArrowUp`, …, ~31 clés) restent identiques ; seul le `src` pointe vers les PNG du projet.
+>
+> **State local requis** (`game/state/stateGame.svelte.ts`) : `stateSpeed{level}` (0/1/2 normal/fast/turbo), `stateSpin{stopRequested, savedIsTurbo}`, `stateHudPopup{isOpen, buyBonusOpen}`. Déjà présents si dérivé de no-mercy.
+>
+> **Adaptations obligatoires lors du portage** (sinon ne compile pas / faux comportement) :
+> 1. **Win affiché** : remplacer toute source spécifique (royale = `tumbleWinState.amount`, tumble) par `stateBet.winBookEventAmount` formaté via `bookEventAmountToCurrencyString`. Capper à `min(win, maxWinAmount)`.
+> 2. **Bannière mode activable** : ne pas hardcoder le texte. Dériver de `stateBetDerived.activeBetMode()?.text?.title` (`betModeMeta` expose `text.title`) → `` `${title} ACTIVATED` ``. Gère plusieurs toggles (ante, feature) génériquement. `handleDisableFeature` = reset `activeBetModeKey='BASE'`.
+> 3. **Max win** : remplacer la constante du projet source par le `maxWin`/`maxWinX` cible (Space Mania = 12500).
+> 4. Couleurs/magic-numbers de layout = placeholders, calibrer ensuite.
+> 5. Drop tout import du projet source non résolu ici (refs character, `stateMeta` inutilisé…).
+>
+> **`AutoSpinMessagePopup`** (modal pixi gold de royale) : ne PAS porter si le projet a déjà un `info/AutoSpinMessageModal.svelte` (HTML) fonctionnel — il gère aussi `source:'manual'` que la version pixi ignore. Sinon le porter nécessite d'ajouter les méthodes i18n (`ok`/`lossLimitReached`/…) absentes.
 
 ### 4.7 BuyBonusPanel
-- [ ] **Fichier**: `src/components/bonus/BuyBonusPanel.svelte`
-- [ ] Copier de royale-cake comme base
+
+> **🔁 Pattern réutilisable — panneau d'achat de bonus**
+>
+> 1 carte par mode achetable/activable, **piloté par `betModeMeta`** (pas de valeurs en dur). Structure : sélection (cartes côte-à-côte desktop / scroll vertical mobile) → popup de confirmation → bouton d'achat. Bet-selector (+/-) + croix intégrés.
+> - **Demander à l'user combien de cartes + quel mode chaque carte** (Space Mania = 4 : `ante`/`feature`/`bonus1`/`bonus2`). NE PAS supposer le mapping art↔mode.
+> - **Assets** : 1 image **sélection** (small) + 1 image **confirmation** (big) par carte → clés `buyBonusCard<Mode>` / `buyBonusCardConfirm<Mode>`. (Convention small=buy / big=confirm.)
+> - **Coûts** : `stateMeta.betModeMeta[key].costMultiplier * stateBet.betAmount`. **Textes** (title/description/dialog/button) : depuis `betModeMeta[key].text` — pas de strings dupliqués.
+> - **Dispatch** (`handleConfirm`) : `stateBet.activeBetModeKey = <key>` puis brancher sur `stateBetDerived.activeBetMode()?.type` : `'buy'` → `broadcast({type:'bet'})` ; `'activate'` → set `autoSpinsLossLimitText`/`autoSpinsSingleWinLimitText = INFINITY_MARK`. (Le `type` de chaque mode est dans `betModeMeta` : ante/feature=`activate`, bonus1/bonus2=`buy`.) ⚠️ **Vérifier que les clés dispatchées existent** dans `rgs/config.ts`/`betModeMeta` (bug classique hérité : émettre `bonus`/`bounty` inexistants).
+> - **Social** : `stateUrlDerived.social()` → swap `bet`→`play`, `buy`→`get` dans tout texte.
+> - **Calibration** : largeur/hauteur d'art carte = constantes placeholder (`CARD_SPACING`, `CARD_IMG_HEIGHT`) + offsets texte, à régler à l'œil (hot reload).
 
 **Structure des assets Buy Bonus:**
 - [ ] Vérifier les assets disponibles dans `buy_bonus/` ou `layout/`
@@ -1720,6 +2023,41 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 ---
 
 ## Phase 5 - Features Spécifiques
+
+### 5.0 — PATTERN EXPAND (RÉUTILISABLE — à lire avant TOUTE feature d'expansion)
+
+Toute feature où des cellules deviennent Wild via une animation (VS-expand de no-mercy, Remplisseur/laser Vaisseau de Space Mania, futur jeu avec expansion, sticky-expand, etc.) suit **ce pattern**. Ne pas réinventer, ne pas décider seul d'un autre fonctionnement.
+
+#### 🚨 Règle d'or — EXPAND = ANIMATION SEULE, JAMAIS de mutation du board
+- Le handler de l'event d'expand **ne doit JAMAIS muter le board** : **pas** de `rawSymbol.name = 'W'`, **pas** de changement de `symbolState` sur les cellules expand.
+- **Le visuel des Wilds = uniquement l'art du spine** de l'animation d'expand. Muter le board ⇒ des sprites Wild qui **poppent** par-dessus/à la place des symboles d'origine = **BUG visuel**.
+- **Le calcul des gains = `isWild`** porté par chaque `EnrichedCombinationPosition` de `show-wins` (le math envoie déjà l'info). Le front n'a **pas** besoin que le board contienne les `W`.
+
+#### Mécanisme de référence (no-mercy — l'expand porté par le SYMBOLE)
+Utilisé quand l'anim d'expand tient dans **une seule animation** jouée par le symbole spécial lui-même :
+1. **`board-reveal`** : `clearVSExpand()` puis `setVSExpandColumns(bookEvent.expandedVS)` — stocke juste *quelles colonnes vont s'expand* (state `stateVSExpand.columnsToExpand`). N'anime rien.
+2. **`onSymbolLand`** (au land de chaque reel) : si `rawSymbol.name === 'VS'` ET sa colonne est dans `columnsToExpand` → trouver le symbole VS du reel → `vsSymbol.symbolState = 'win'`. Le spine *win* du symbole **EST** le visuel de la colonne wild expand. (Déclenché on-land, pas à la fin du spin.)
+3. **`vs-expand` handler** : **no-op total** (l'anim est déjà partie on-land ; l'event existe pour l'ordre/compat).
+4. Board **jamais muté**. Nettoyage de l'overlay/expand au prochain `board-reveal` (et `clearVSExpand()` à la transition bonus).
+
+#### Variante multi-phase / dépendante de la position (Space Mania — overlay dédié)
+À utiliser **uniquement** quand l'anim d'expand **ne tient pas** dans une seule `animationName` du symbole (machine de phases, longueur dépendant de la position, etc.). Ex. laser Vaisseau : phases `Onland → Start → laserstart{n} → idle` avec `n` = nb de lignes sous le Remplisseur ; **idle = 2 tracks simultanés** (track0 `Idle` + track1 `laseridle{n}`).
+- Un **overlay spine dédié** par colonne (`FillExpand.svelte` container + `FillLaser.svelte` machine de phases), pattern repris de `Duels.svelte`/`DuelAnimation.svelte`.
+- **Trigger ON LAND** (comme le VS no-mercy) : `board-reveal` `setFillPending(expandedColumns)` AVANT le spin ; `onSymbolLand` déclenche `triggerFillLaser(col, fromRow)` quand le Remplisseur atterrit dans une colonne pending. → démarre pendant l'arrêt des reels (pas de latence post-spin).
+- **Gate des wins = handler `await` (analogue du `duel`)** : `stateFillExpand.isBlockingSpin=true; await waitFillLaser(column); =false`. Comme les events `fill-expand` sont séquentiels avant `show-wins`, **tous** les lasers ont fini leur intro avant les paylines/wins. `onFillLaserReady(column)` (appelé quand le laser atteint idle) résout l'attente ; `waitFillLaser` résout immédiatement si déjà prêt / pas de laser (jamais de hang).
+- **Skip** (§SKIP MECHANICS) : `FillExpand` capture `columnsToSkip` (Set des colonnes actives) sur `stopButtonClick` → `FillLaser` saute **direct à idle** (pas de SKIP_TO_TIME) → `onFillLaserReady` débloque. Bouton play : check `stateFillExpand.isBlockingSpin` (comme `stateDuel.isBlockingSpin`).
+- **Disparition au nouveau spin = FADE-OUT** (comme no-mercy `fadeOutDuels`/`clearDuels`, jamais de clear instantané) : `board-reveal` `fadeOutFillLasers()` → `FadeContainer` par laser (200ms) → `clearFadedFillLaser()` au complete. Transition bonus = clear dur. Collision (colonne re-expand pendant le fade) gérée dans `triggerFillLaser` (remove old + add fresh, comme `duelPlay`).
+- **La règle d'or reste identique** : board **jamais** muté. Cellules `fromRow..bas` rétrécies (scale→0) pendant `laserstart`.
+- Positionnement board-space via `BoardContainer` + `getSymbolX/getSymbolY` (voir section POSITIONNEMENT). `SCALE`/`OFFSET` = placeholders à calibrer avec un debug live.
+
+#### Côté MATH — participation = NIVEAU COLONNE (jamais case-exacte)
+Pour décider *quelles* colonnes s'expand, le moteur évalue les wins sur un board temp où tous les candidats expand, puis garde une colonne si **une position gagnante quelconque tombe sur cette colonne** (`sym.reelIndex === column`), comme `canFormWinningCombination` de no-mercy. **NE PAS** tester la case exacte du symbole spécial (`reelIndex === col && posIndex === row`) : les combos gagnantes sont **ancrées à gauche et contiguës** (reels 0..K-1), donc une combo qui justifie la colonne C traverse forcément toutes les colonnes D<C dont elle dépend → elles participent aussi → ensemble cohérent. Le test case-exacte casse cette cohérence : une colonne peut s'expand grâce au wild d'un autre filler **non appliqué** (sa propre case ne gagnait pas) → colonne expand **sans aucune ligne gagnante** = BUG. (Bug réel rencontré sur space-mania, corrigé en alignant sur no-mercy.)
+
+#### Checklist avant d'implémenter un expand
+- [ ] Lu le handler équivalent dans `no-mercy-at-down-frontend` (`vs-expand`, `board-reveal`, `onSymbolLand`).
+- [ ] Confirmé que `show-wins` porte `isWild` (sinon demander au math) → **aucune** mutation board nécessaire.
+- [ ] Choisi le mécanisme : symbole (1 anim) **ou** overlay dédié (multi-phase) — justifié.
+- [ ] Si ambigu sur le rendu attendu : **demander**, ne pas deviner.
 
 ### 5.1 VSExpandOverlay (NOUVEAU)
 - [ ] **Fichier**: `src/components/effects/VSExpandOverlay.svelte`
@@ -5437,10 +5775,84 @@ $effect(() => {
 
 ---
 
+## ⚠️ GATING : ANIMATIONS UI RÉACTIVES ↔ CHAÎNE D'EVENTS ASYNC
+
+> **Généraliste, réutilisable.** Dès qu'une animation **pilotée par un composant réactif** (count-up, intro de laser/overlay, reveal de multiplicateurs, fusion…) doit **bloquer la chaîne de book events** (un handler `await` une promesse résolue quand l'anim finit) ET qu'elle est **skippable**, on tombe sur une famille de races/deadlocks. Cette section décrit l'architecture correcte et les pièges, indépendamment du jeu. (Cas concret Space Mania : reveal des multiplicateurs de colonne + gate des lasers Vaisseau ; analogue no-mercy : duels.)
+
+### 1. Le pattern de "gate"
+
+Un handler de book event doit attendre une animation qui vit dans un composant Svelte :
+
+```typescript
+// State partagé (module) = le pont entre la couche handler (async) et la couche UI (réactive)
+state = { running: false, resolvers: [] as (() => void)[] }
+export const startAnim = () => { state.running = true; }                  // handler, AVANT le spin
+export const markAnimDone = () => {                                       // composant, anim finie
+    if (!state.running) return;                                          // idempotent (cf. §2.B)
+    state.running = false;
+    state.resolvers.forEach(r => r()); state.resolvers = [];
+}
+export const waitAnim = (): Promise<void> => new Promise(res => {         // handler, await le gate
+    if (!state.running) { res(); return; }
+    state.resolvers.push(res);
+});
+```
+
+```typescript
+// Handler : bloque jusqu'à la fin de l'anim (ou son skip)
+'some-event': async () => { await waitAnim(); /* …suite (paylines, wins) */ }
+```
+
+**Règle d'or :** l'état du gate **partagé entre la couche async (handlers) et la couche réactive (composants)** doit être **possédé par du state partagé** et **muté synchroniquement par le handler aux points de décision** — JAMAIS dérivé/reseté à l'intérieur d'un `$effect` de composant, où l'ordre de flush est non déterministe.
+
+### 2. Les 4 pièges (root causes généralisées)
+
+Ces 4 bugs ont chacun bloqué la machine. Ils se ressemblent dans toutes les machines.
+
+**A. Flag latché lu à deux instants du même flush → état « moitié-skip / moitié-normal » → deadlock.**
+Si une décision par-séquence (ex. `skip`) vit dans le `$state` d'un composant et est **écrite par l'effect parent** pendant que les **enfants la lisent** : quand les enfants tournent AVANT le parent (l'ordre parent→enfant n'est PAS garanti quand les deux dépendent de la même clé réactive), ils lisent une valeur **périmée/latchée**, puis le parent la bascule en cours de flush → moitié des éléments en mode skip, moitié en normal → aucun ne signale sa fin → gate jamais relâché.
+→ **Fix : décider ce flag UNE fois, SYNCHRONIQUEMENT, dans le handler** (avant tout `$effect`), dans du **state partagé**. Tout le flush lit alors **une seule valeur stable**. L'effect parent ne fait que la **lire**.
+
+**B. Suivi de complétion qui race avec un reset réactif.**
+Si la libération du gate dépend de callbacks enfant→parent (`onDone`) ALORS que l'accumulateur de complétion (compteur/Set des éléments finis) est **reseté réactivement dans le MÊME flush** : les enfants signalent avant que le parent ne reset → l'accumulateur contient les valeurs du tour précédent → la condition « tous finis » n'est jamais (ou est faussement) atteinte.
+→ **Fix : relâcher le gate de façon déterministe depuis le propriétaire** (parent/handler), **synchroniquement** pour le cas skip ; rendre `markAnimDone()` **idempotent** (`if (!running) return`) pour que parent ET callbacks puissent l'appeler sans se battre. Ne pas faire dépendre la libération de l'ordre des callbacks enfants.
+
+**C. Effect de skip qui ne se relance pas car sa dépendance ne change pas.**
+Un `$effect` gardé sur un flag réactif (`if (!skip || done) return`) ne **re-tourne pas** si la valeur ne change pas d'une itération à l'autre (flag **latché** `true→true`, ou `done` resté `false`). L'anim n'est alors jamais skippée pour la nouvelle séquence.
+→ **Fix : keyer l'effect sur le token par-itération** (`spinKey`/nonce) — `void props.spinKey;` en tête — pour qu'il **se ré-évalue à chaque séquence**, indépendamment des autres deps. Et **ne pas gater sur un flag d'état mutable** (ex. `done`) dont l'ordre de reset est incertain : utiliser un **garde par-clé** (`let appliedForKey = -1; if (appliedForKey === key) return; appliedForKey = key;`).
+
+**D. La garde « nouvelle action vs stop » doit inclure TOUTES les anims bloquantes.**
+Le bouton play décide « nouveau spin » vs « stop/skip » via `isIdle` + des flags de blocage. **Toute** animation qui peut tourner pendant que la machine xstate lit déjà `idle` (laser, reveal, fusion…) doit figurer dans la garde — sinon un clic pendant l'anim **lance une nouvelle action** au lieu de la skipper.
+
+```typescript
+// ❌ incomplet — manque l'anim de reveal
+if (isIdle && !state.laserBlocking) { bet() } else { stop() }
+// ✅ inclut TOUTES les anims bloquantes
+if (isIdle && !state.laserBlocking && !state.revealRunning) { bet() } else { stop() }
+```
+
+> **Spécifique TURBO :** ce bug est souvent **invisible en vitesse normale** et n'apparaît qu'en **turbo**. Raison : les reels/handlers sont accélérés (`/timeScale`) mais les anims UI ne le sont pas toujours (un count-up à durée fixe reste lent) → la machine atteint `idle` **pendant** que l'anim joue encore. Pire sur les **branches sans event de gating** (ex. spin sans expand → aucun `isBlockingSpin` posé → rien ne couvre la fenêtre de l'anim). Toujours tester le skip **en turbo** ET sur les spins **sans win / sans feature**.
+
+### 3. Process de debug (race/timing réactif) — NE PAS deviner
+
+Les bugs de ce type ne se résolvent pas « à la lecture ». Trois corrections « logiques » d'affilée peuvent échouer parce que le modèle mental de l'ordre de flush est faux. Méthode qui a marché :
+
+1. **Instrumenter chaque point de gate** avec des logs **greppables** (un tag commun, ex. `[GATE]`) : transitions d'état, **mise en file / résolution** des promesses (`QUEUED` vs `IMMEDIATE` vs `RELEASE`), **entrée d'effect** (avec la valeur des flags lus), et **branche de décision prise** (au point de décision, logger TOUS les inputs + la branche : `{branch:'BET'|'STOP', isIdle, blockingA, blockingB}`).
+2. **Marqueurs de frontière** (ex. un log par `board-reveal`) pour découper le journal par spin.
+3. **Reproduire**, puis lire **le dernier log avant le gel** : il pointe la promesse/branche exacte qui coince (`waitX QUEUED` sans `RELEASE` correspondant ; `onDone` jamais loggé ; `branch:'BET'` alors qu'on attendait `STOP`).
+4. **Prouver la cause par les données AVANT de coder le fix.** Comparer les scénarios qui marchent vs qui buggent (normal vs turbo, avant vs pendant l'anim) : la diff dans les logs EST la cause.
+5. Une fois confirmé et corrigé, **retirer les logs** (grep le tag).
+
+> L'utilisateur peut copier la console dans un fichier et te l'envoyer — préférer ce flux à la spéculation. Chaque correction non prouvée par les logs est une perte de temps.
+
+---
+
 ## Changelog
 
 | Date | Phase | Description |
 |------|-------|-------------|
+| 2026-06 | Layout | §RESPONSIVE LAYOUT — le `layoutType` "desktop" couvre plusieurs ratios. Plein écran + barre navigateur = 1920×911 (ratio 2.11) → jeu letterboxé (fit hauteur 0.843), les valeurs calibrées pour 1080 ne collent plus. Détecter `isWideDesktop = desktop && canvasRatio > 16/9 + ε`. Deux traitements : (A) élément collé au board (full asset) → espace board `mainLayout` + branche `wideDesktop` optionnelle (réf `Character.svelte`) ; (B) décor de coin / **crop partiel** → espace écran `canvasSizes` + un jeu `{scale,margins}` PAR mode, calibré (réf `Rock.svelte`). Un crop partiel ne va PAS en espace board (letterbox révèle le bord). **Exception mobile** : un élément board placé hors-grille (mascotte sur le côté) déborde verticalement en portrait (board fit-largeur) → sur mobile basculer en espace écran (`scale ∝ canvas.height`, position en %) + mount sans MainContainer (réf `Character.svelte` branche `isMobile`). |
+| 2026-06 | Gating/Skip | Ajout section **GATING : ANIMATIONS UI RÉACTIVES ↔ CHAÎNE D'EVENTS ASYNC** — pattern de gate (handler `await` ← composant résout), 4 root causes de deadlock de skip (flag latché lu 2× dans un flush ; complétion qui race avec reset réactif ; effect de skip non re-déclenché → keyer sur nonce + garde par-clé ; garde nouvelle-action incomplète, bug turbo/sans-gating-event), et le **process de debug par logs greppables** (prouver par les données avant de coder). Généralisé depuis Space Mania (reveal multiplicateurs + gate lasers). |
 | 2026-05 | Max win cap bet-double | Fix `capToMaxWin` dans `src/game/utils.ts` — suppression du `bet *` dans la formule du cap. Avant : `bet × MAX_WIN_MULTIPLIER × BOOK_AMOUNT_MULTIPLIER` → à `bet = 0.01`, cap = `12500` book units → HUD plafonné à `1.25 GC`. Après : `MAX_WIN_MULTIPLIER × BOOK_AMOUNT_MULTIPLIER` (formule replay, bet-independent) → cap `1 250 000` book units → render `× wageredBet (= 0.01)` = `125 GC` (12500× bet, correct). Signature passe de `(amount, betAmount?)` à `(amount)`. Bug visible uniquement pour `bet < 1` (mode normal). Mode replay déjà correct. Même racine que "Social mode win display" — le `bet` était double-appliqué (au cap + au render). |
 | 2026-05 | Currency precision counters | Fix compteur win 3-décimales dans `Win.svelte` et `FreeSpinOutro.svelte` — décimales count-up locked sur la précision du target final pour éviter le flicker 2↔3 décimales pendant les valeurs intermédiaires noisy de la Tween. Ajout `detectCurrencyDecimalPrecision()`, `numberToCurrencyStringWithFixedDecimals()`, `bookEventAmountToCurrencyStringWithFixedDecimals()` dans `packages/utils-shared/amount.ts`. `numberToCurrencyString` étendu : précision dynamique 2..3 décimales selon valeur (avant : toujours 2 hors `< 0.1`). Cap max 3 décimales partout via constante `MAX_CURRENCY_DECIMALS`. Résout aussi le bug HUD balance figée quand win < 0.01 (ex 988.75 + 0.006 → "988.756"). |
 | 2026-05 | Turbo leak into bonus | Fix `fs-triggered` — clear `stateSpin.savedIsTurbo` et `stateSpin.stopRequested` après la capture/reset turbo. Sans clear, un click stop/skip pendant le pre-bonus spin laissait l'orphan non-null, et le 1er `board-reveal` du bonus restaurait `stateBet.isTurbo = true` via la branche `savedIsTurbo \|\| level >= 2`. HUD montrait turbo OFF (level 0) mais tous les spins bonus tournaient en turbo. |
