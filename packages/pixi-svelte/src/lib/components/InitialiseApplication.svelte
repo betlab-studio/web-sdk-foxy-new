@@ -24,7 +24,10 @@
 			backgroundAlpha: 0,
 			hello: false,
 			multiView: false,
-			antialias: !/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent),
+			// SPIKE (test/efk-display): forced false on desktop so the main WebGPU pass is sampleCount 1.
+			// Effekseer's external-pass draw can't target an MSAA(4) pass (no sampleCount option), so in-pass
+			// compositing needs a non-multisampled main target. REVERT for production (use render-to-texture).
+			antialias: false,
 			clearBeforeRender: true,
 			preference: /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'webgl' : 'webgpu',
 			resolution: Math.min(devicePixelRatio.current, 2),
