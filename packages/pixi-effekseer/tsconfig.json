@@ -1,0 +1,10 @@
+{
+	"extends": "config-ts/base.json",
+	"include": ["."],
+	"exclude": ["dist", "build", "node_modules"],
+	"compilerOptions": {
+		// The vendored emscripten glue (effekseer-runtime/*.js) is not type-clean; checkJs would fail the
+		// svelte-package type pass over it. We consume it as `any` anyway (see EfkPixi.svelte).
+		"checkJs": false
+	}
+}

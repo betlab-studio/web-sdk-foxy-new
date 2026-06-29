@@ -1,0 +1,42 @@
+{
+	"name": "pixi-effekseer",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"license": "MIT",
+	"files": [
+		"dist"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/StakeEngine/web-sdk/tree/main/packages/pixi-effekseer"
+	},
+	"scripts": {
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"build": "svelte-package",
+		"publish": "npm publish",
+		"lint": "eslint *.ts*"
+	},
+	"devDependencies": {
+		"@sveltejs/package": "2.3.10",
+		"@sveltejs/vite-plugin-svelte": "5.0.3",
+		"config-svelte": "workspace:*",
+		"config-ts": "workspace:*",
+		"config-vite": "workspace:*",
+		"eslint": "9.21.0",
+		"eslint-config-custom": "workspace:*",
+		"prettier": "3.5.2",
+		"prettier-plugin-svelte": "3.3.3"
+	},
+	"dependencies": {
+		"pixi-svelte": "workspace:*",
+		"svelte": "5.20.5"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"svelte": "./dist/index.js"
+		}
+	}
+}
