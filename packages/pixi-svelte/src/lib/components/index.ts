@@ -1,6 +1,7 @@
 import App from './App.svelte';
 import Text, { type Props as TextProps } from './Text.svelte';
 import Container, { type Props as ContainerProps } from './Container.svelte';
+import Flex, { type Props as FlexProps } from './Flex.svelte';
 import Rectangle, { type Props as RectangleProps } from './Rectangle.svelte';
 import Circle, { type Props as CircleProps } from './Circle.svelte';
 import Graphics, { type Props as GraphicsProps } from './Graphics.svelte';
@@ -29,6 +30,7 @@ export {
 	App,
 	Text,
 	Container,
+	Flex,
 	Rectangle,
 	Circle,
 	Graphics,
@@ -51,6 +53,7 @@ export {
 export type {
 	TextProps,
 	ContainerProps,
+	FlexProps,
 	RectangleProps,
 	CircleProps,
 	GraphicsProps,

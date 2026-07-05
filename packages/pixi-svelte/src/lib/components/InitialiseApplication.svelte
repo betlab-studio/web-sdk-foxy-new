@@ -1,5 +1,9 @@
 <script lang="ts">
 	import * as PIXI from 'pixi.js';
+	// Side-effect import: applies @pixi/layout's Yoga-flexbox mixins to Container/Sprite/Text
+	// prototypes and registers the layout render system. MUST run before any PIXI object is created,
+	// so it lives at the app-init root. Enables the `layout` prop on pixi-svelte components (Flex).
+	import '@pixi/layout';
 	import { onMount, onDestroy, type Snippet } from 'svelte';
 	import { devicePixelRatio } from 'svelte/reactivity/window';
 

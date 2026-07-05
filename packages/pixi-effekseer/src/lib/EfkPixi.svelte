@@ -52,13 +52,36 @@
 		position?: Vec3;
 		/** zIndex of the render node within its parent container. */
 		zIndex?: number;
+		/**
+		 * Milliseconds to wait after an effect instance FINISHES before auto-replaying it. Called once
+		 * per replay so it can return a fresh (e.g. random) value each cycle. `0` (default) = replay
+		 * immediately = continuous loop. Only applies to effects that actually end (one-shot bursts).
+		 */
+		replayDelayMs?: () => number;
+		/** Camera field-of-view in degrees. SMALLER = zoomed in = effect appears BIGGER. Default 30. */
+		fov?: number;
+		/** Camera eye position. eye.z = distance (smaller = closer = bigger); eye.x/y pan the view. Default {0,0,30}. */
+		eye?: Vec3;
+		/** Camera look-at target. Default {0,0,0}. */
+		target?: Vec3;
+		/**
+		 * When false, the effect is PAUSED: its render/update is skipped (zero cost) but the context stays
+		 * ALIVE. Toggle this instead of mounting/unmounting to avoid the expensive re-init (runtime + context
+		 * + loadEffect, incl. a ticker stop on WebGL) that causes a freeze at scene transitions. Default true.
+		 */
+		visible?: boolean;
 	};
-	const { effectUrl, textureUrl, position = { x: 0, y: 0, z: 0 }, zIndex = -100 }: Props = $props();
-
-	// Camera (placeholder framing — calibrate per effect later).
-	const FOV = 30;
-	const EYE = { x: 0, y: 0, z: 30 };
-	const TARGET = { x: 0, y: 0, z: 0 };
+	const {
+		effectUrl,
+		textureUrl,
+		position = { x: 0, y: 0, z: 0 },
+		zIndex = -100,
+		replayDelayMs,
+		fov = 30,
+		eye = { x: 0, y: 0, z: 30 },
+		target = { x: 0, y: 0, z: 0 },
+		visible = true,
+	}: Props = $props();
 
 	const COLOR_FORMAT = 'bgra8unorm'; // pixi v8 webgpu canvas format
 	const DEPTH_FORMAT = 'depth24plus-stencil8'; // pixi v8 depth-stencil format
@@ -73,6 +96,8 @@
 	let handle: any = null;
 	let lastTs = 0;
 	let destroyed = false;
+	// When the current instance ends, the timestamp at which to replay (null = not yet scheduled).
+	let pendingReplayAt: number | null = null;
 
 	const advance = () => {
 		const now = performance.now();
@@ -83,8 +108,8 @@
 	};
 
 	const setCamera = (aspect: number) => {
-		efkContext.setProjectionPerspective(FOV, aspect, 1, 1000);
-		efkContext.setCameraLookAt(EYE.x, EYE.y, EYE.z, TARGET.x, TARGET.y, TARGET.z, 0, 1, 0);
+		efkContext.setProjectionPerspective(fov, aspect, 1, 1000);
+		efkContext.setCameraLookAt(eye.x, eye.y, eye.z, target.x, target.y, target.z, 0, 1, 0);
 	};
 
 	// The custom-render node. Created synchronously so addToParent() (which registers its mount/cleanup
@@ -92,7 +117,7 @@
 	// on efkContext until the async init below finishes.
 	const node: any = new RenderContainer({
 		render: (renderer: any) => {
-			if (!efkContext || destroyed) return;
+			if (!efkContext || destroyed || !visible) return;
 
 			if (backend === 'webgpu') {
 				const pass = renderer.encoder?.renderPassEncoder;
@@ -151,8 +176,14 @@
 				gl.bindVertexArray(prevVao);
 			}
 
-			// loop the effect
-			if (handle && !handle.exists) handle = efkContext.play(effect, position.x, position.y, position.z);
+			// loop the effect, optionally with a caller-controlled delay between plays (replayDelayMs).
+			if (handle && !handle.exists) {
+				if (pendingReplayAt === null) pendingReplayAt = performance.now() + (replayDelayMs?.() ?? 0);
+				if (performance.now() >= pendingReplayAt) {
+					handle = efkContext.play(effect, position.x, position.y, position.z);
+					pendingReplayAt = null;
+				}
+			}
 		},
 		// large bounds so pixi never culls the node
 		addBounds: (b: any) => b.addFrame(-1e5, -1e5, 1e5, 1e5),
@@ -252,7 +283,6 @@
 			efkContext = ctx;
 			handle = ctx.play(effect, position.x, position.y, position.z);
 			lastTs = performance.now();
-			console.log(`[EfkPixi] effect loaded + playing (${backend}, in-pass)`);
 		} catch (e) {
 			console.error('[EfkPixi] init failed:', e);
 		}

@@ -824,6 +824,45 @@ Sans le `<MainContainer>`, le debug ne sera pas positionné au même endroit que
 
 ---
 
+## ⚠️ Z-ORDER : `sortableChildren` + zIndex EXPLICITE vs ordre de montage (gotcha réutilisable)
+
+> **Symptôme typique** : tout est bien empilé au lancement, mais **dès qu'on change de format d'affichage** (desktop ↔ mobile ↔ popout) un élément **passe devant un autre** (ex. un décor de coin / rock saute par-dessus le HUD). On dirait que les zIndex sont « ignorés ».
+
+### Cause
+
+Dans pixi-svelte, le z-order d'un `Container` suit l'**ordre des enfants dans le tableau pixi** (= ordre d'`addChild`), **PAS** la position logique Svelte — **sauf** si le parent a **`sortableChildren={true}`** (alors pixi trie par `zIndex`).
+
+Or un enfant **monté conditionnellement** (`{#if isMobile}…`, overlay on-demand) est **ajouté en dernier** (`addChild` append) quand son bloc (re)monte. Un **swap de layout** remonte ces branches → elles passent **au-dessus** des frères montés avant → l'empilement « par ordre de montage » est cassé. Idem pour les overlays qui montent à la volée (paylines, anticipations) : ils s'ajoutent en dernier = au-dessus.
+
+### Fix
+
+**Le conteneur qui mélange des enfants montés conditionnellement / à la volée doit être `sortableChildren={true}`, ET chaque couche doit porter un `zIndex` EXPLICITE.** L'ordre de (re)montage devient alors sans effet.
+
+- Le conteneur **racine du jeu** (celui de `Game.svelte` qui contient board / hud / character / rock / overlays / panels) est un cas classique : il a des branches `{#if isMobile}`/`{#if !isMobile}` → **toujours** le passer en `sortableChildren` + zIndex par couche.
+- Pour les composants qui **ne forwardent pas forcément** `zIndex` à leur root, **wrapper** chaque couche dans un `<Container zIndex={n}>` (zéro hypothèse sur le forward, un wrapper neutre `x=0,y=0` ne décale rien) :
+
+```svelte
+<Container sortableChildren={true}>
+  <Container zIndex={0}><MainContainer><BoardFrame /></MainContainer></Container>
+  <Container zIndex={1}><MainContainer sortableChildren={true}><Board /> …</MainContainer></Container>
+  <Container zIndex={2}><Rock /></Container>          <!-- décor de coin, au-dessus du board -->
+  {#if !isMobile}<Container zIndex={3}><Character /></Container>{/if}
+  <Container zIndex={7}><HudPixi /></Container>        <!-- hud au-dessus du décor -->
+  <Container zIndex={20}><FreeSpinIntro /></Container> <!-- splashs tout devant -->
+</Container>
+```
+
+- **Documenter le barème** des zIndex en commentaire (back→front) au-dessus du conteneur — il devient la source de vérité de l'empilement.
+- Un élément dont le z **dépend du layout** (ex. mascotte **derrière** le board en mobile, **devant** en desktop) = deux branches `{#if}` avec **deux zIndex différents** (ex. `-1` vs `3`), pas un seul.
+- Les conteneurs **imbriqués** (ex. board interne) gardent leur propre `sortableChildren` + zIndex locaux ; les deux niveaux coexistent sans interférence.
+- Un enfant qui pose **lui-même** son zIndex (ex. effet de fond à `-100`) reste correct sous `sortableChildren` ; lui passer aussi le `zIndex` en prop sécurise le cas où il ne le poserait pas.
+
+### Règle
+
+> Dès qu'un conteneur a **au moins un enfant monté conditionnellement ou à la volée** et que l'empilement compte → `sortableChildren={true}` + **zIndex explicite sur chaque enfant** (wrapper si besoin). Ne **jamais** se reposer sur l'ordre de montage : il change au remount (layout swap, mount on-demand).
+
+---
+
 ## ⚠️ QUESTIONS CRITIQUES À POSER POUR CHAQUE NOUVEAU PROJET
 
 > **AVANT de commencer à configurer les composants, DEMANDER:**
@@ -1832,7 +1871,8 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 >
 > **2 composants** :
 > - `TransitionAnimation.svelte` — renderer. `SpineProvider key="transition"`, `zIndex={1000}`, 1 `SpineTrack` trackIndex 0 `animationName='animation'`, listener `complete → oncomplete`. Pas de backdrop noir (le wipe couvre tout par son art).
->   - ⚠️ **Sizing dépend de l'art** : royale `x=w/2, y=h*0.3, height=h*0.56` (son art est calibré pour remplir à cette hauteur). Si le skeleton transi du projet a une **autre taille** (vérifier `skeleton.width/height` du `.json`), il ne couvrira pas. L'AABB transi a souvent du **vide autour de l'art visible** → un fit `width/height = canvas` rend l'art **trop petit**. Solution : centrer (`x=w/2, y=h/2`) + `width=canvas.width*FILL_BOOST`, `height=canvas.height*FILL_BOOST`, **`FILL_BOOST` calibré à l'œil** (hot reload, via `DEBUG=true` dans `Transition.svelte` pour l'afficher en continu, puis remettre `false`). Space Mania : transi 4383×3009, **`FILL_BOOST = 2.5`**.
+>   - ⚠️ **Sizing = scale UNIFORME (une seule dimension), JAMAIS width+height.** Donner **`height` seul** (comme royale : `x=w/2, y=h*0.3, height=h*0.56`) → le `SpineProvider` scale l'art **uniformément** et **préserve son aspect**. 🚨 **Ne JAMAIS poser `width` ET `height` en même temps** (`width=canvas.w*k, height=canvas.h*k`) : ça scale les 2 axes indépendamment → **l'art est étiré / déformé**, invisible sur desktop 16:9 (w et h proches) mais **flagrant en portrait mobile** (`w ≪ h`). Bug vécu Space Mania.
+>   - **Couverture** : l'AABB transi a souvent du **vide autour de l'art** → fitter à la hauteur exacte rend l'art trop petit. Booster : `height = canvas.height * HEIGHT_FILL` avec `HEIGHT_FILL > 1` (un gros boost garantit aussi que la **largeur** est couverte, puisque le scale est uniforme). Centrer (`x=w/2, y=h/2`). **Calibrer `HEIGHT_FILL` à l'œil** (hot reload, `DEBUG=true` dans `Transition.svelte` puis `false`). Si l'art du projet est calibré (comme royale) → pas de boost, juste `height=h*0.56`. Space Mania : transi 4383×3009, **`HEIGHT_FILL = 2.5`** (height only).
 > - `Transition.svelte` — contrôleur. Exporte `EmitterEventTransition = { type: 'transition' }`. `subscribeOnMount({ transition: async () => { transitioning = true; await waitForResolve(r => oncomplete = r); } })`. `{#if transitioning}{#key animationKey}<TransitionAnimation oncomplete={handleComplete}/>`. **Async-bloquant** : le `broadcastAsync` ne résout qu'au `complete` de la spine. **Aucun son ici.**
 >
 > **Montage** : `<Transition />` = **dernier enfant de `<App>`**, hors des branches `{#if loading}` (dispo pendant le loading pour l'intro). zIndex 1000 → au-dessus de tout.
@@ -1851,7 +1891,10 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 > - **Intro** : depuis `LoadingScreen` (sur "press to continue") → après le sleep 1300, appeler `props.onloaded()` (révèle le board pré-monté en `alpha 0`) puis `await p`.
 > - **base→bonus / bonus→base** : depuis `bookEventHandlerMap.ts`. bonus→base swap aussi la musique (`bgm_main`).
 > - ⚠️ **PAS de transition sur retrigger FS** (déjà en freegame).
-> - Board pré-monté invisible (`<Container alpha={showLoadingScreen ? 0 : 1}>`) pour éviter un freeze pendant le wipe.
+> - 🚨 **Anti-freeze au reveal — PRÉ-MONTER TOUT le visuel invisible pendant le loading.** Si on gate tout le contenu de jeu sur `{#if allAssetsLoaded && !showLoadingScreen}`, alors **tout monte d'un coup** au moment où le loading disparaît = **pendant le wipe** → gros freeze (board + hud + char + effets + spines se construisent en un frame). Fix royale-cake = **découper en deux** :
+>   - **Visuel** (board, hud, char, rock, effets, logo, overlays…) → `{#if allAssetsLoaded}` **enveloppé** dans `<Container alpha={showLoadingScreen ? 0 : 1}>`. Il se **construit derrière le loading screen** (alpha 0), donc au reveal il est **déjà monté** → juste `alpha→1`, zéro freeze. (Les effets lourds type Effekseer/WebGPU se construisent aussi pendant le loading = bonus.)
+>   - **Logique de démarrage** (`<OnMount onmount={handleGameStart}/>` qui lance l'anim board, `<ResumeBet/>`, et `<Sound/>` qui exige le geste pour l'audio) → reste sous `{#if allAssetsLoaded && !showLoadingScreen}` = ne se déclenche **qu'au reveal**. Ne PAS pré-monter ça (sinon spin/son partent pendant le loading).
+>   - Réf : `Game.svelte` (Space Mania + royale-cake). ⚠️ Vérifier que les composants visuels pré-montés ne lancent **pas** d'anim/son dans leur propre `onMount` (l'anim board doit être déclenchée par `handleGameStart`, pas par le mount du `Board`).
 >
 > **Statut Space Mania** : système (asset + 2 composants royale-exact + montage + type) en place. **Câblage des 3 call-sites en attente** : intro = rework loading-flow ; base↔bonus = handlers Phase 3.
 
@@ -1949,7 +1992,7 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 > - **Coûts** : `stateMeta.betModeMeta[key].costMultiplier * stateBet.betAmount`. **Textes** (title/description/dialog/button) : depuis `betModeMeta[key].text` — pas de strings dupliqués.
 > - **Dispatch** (`handleConfirm`) : `stateBet.activeBetModeKey = <key>` puis brancher sur `stateBetDerived.activeBetMode()?.type` : `'buy'` → `broadcast({type:'bet'})` ; `'activate'` → set `autoSpinsLossLimitText`/`autoSpinsSingleWinLimitText = INFINITY_MARK`. (Le `type` de chaque mode est dans `betModeMeta` : ante/feature=`activate`, bonus1/bonus2=`buy`.) ⚠️ **Vérifier que les clés dispatchées existent** dans `rgs/config.ts`/`betModeMeta` (bug classique hérité : émettre `bonus`/`bounty` inexistants).
 > - **Social** : `stateUrlDerived.social()` → swap `bet`→`play`, `buy`→`get` dans tout texte.
-> - **Calibration** : largeur/hauteur d'art carte = constantes placeholder (`CARD_SPACING`, `CARD_IMG_HEIGHT`) + offsets texte, à régler à l'œil (hot reload).
+> - **Calibration** : largeur/hauteur d'art carte = constantes placeholder (`CARD_SPACING`, `CARD_IMG_HEIGHT`), à régler à l'œil (hot reload). **Placement du texte (titre/desc/prix) : NE PAS empiler des offsets Y en dur** — utiliser le système flexbox `<Flex>` (cf. §4.7bis) : 1 « box » par carte, le stack se distribue tout seul + reflow i18n.
 
 **Structure des assets Buy Bonus:**
 - [ ] Vérifier les assets disponibles dans `buy_bonus/` ou `layout/`
@@ -1999,6 +2042,38 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 - [ ] Descriptions: police normale (ex: 'Segoe UI')
 - [ ] Vérifier les polices chargées dans `assets.ts` et leur nom exact
 
+### 4.7bis ⭐ Placement de texte en flexbox (`@pixi/layout` + `<Flex>`) — RÉUTILISABLE
+
+> **Problème générique** : du texte (titre/desc/prix, boutons, labels) posé **par-dessus une image** dont la zone blanche **diffère d'une carte/popup à l'autre**, et qui doit **reflow en i18n** (17 langues : titres allemands ~1.8× plus longs, arabe, CJK). Des offsets Y en dur (`y = bottom - 170`) cassent : ils supposent une longueur de texte fixe → collision titre/desc dès qu'une langue déborde, et il faut re-régler par carte ET par langue. **Ne jamais empiler des offsets Y en dur pour un stack de texte multi-langue.**
+>
+> **Solution SDK (flexbox Yoga)** : `@pixi/layout` (moteur Yoga, le même que React Native) branché dans `pixi-svelte`. On définit **une box par carte** ; le flexbox distribue le stack tout seul et reflow automatiquement.
+
+**Setup (une fois, dans le SDK `pixi-svelte`) :**
+- **Deps** : `@pixi/layout` + peer `yoga-layout` dans `packages/pixi-svelte/package.json` (versions alignées, ex. `3.2.1` ; `@pixi/layout` peer = `pixi.js ^8`).
+- **Init** : `import '@pixi/layout';` (side-effect) **en tête de `InitialiseApplication.svelte`** — applique les mixins Yoga sur `Container`/`Sprite`/`Text` **avant** toute création d'objet PIXI. Ajoute la prop `layout`.
+- **Binding gratuit** : `propsSyncEffect` de pixi-svelte fait `target[key] = props[key]` pour **toute** prop → un `<Container layout={...}>` pose `container.layout`. Marche sur `Container`/`Text`/`Sprite` sans wrapper spécial.
+- **Wrapper `<Flex>`** (`pixi-svelte/src/lib/components/Flex.svelte`, exporté depuis l'index) : `Container` avec défaut `{ display:'flex', flexDirection:'column' }` ; la prop `layout` du caller **merge** par-dessus. C'est l'asset réutilisable (le lib = juste le moteur).
+
+**Pattern d'usage (stack de texte dans une box par carte) :**
+```svelte
+<Flex
+  x={-flexW / 2}                                  {/* box centrée sur la carte */}
+  y={cardBottomY - card.box.topFromBottom}         {/* haut de la box, mesuré du bas de l'art */}
+  layout={{ width: flexW, height: card.box.height, justifyContent: 'space-between', alignItems: 'center' }}
+>
+  <Text anchor={0} layout={true} text={title} style={titleStyle} />
+  <Text anchor={0} layout={true} text={desc}  style={descStyle} />
+  <Text anchor={0} layout={true} text={price} style={priceStyle} />
+</Flex>
+```
+- **Config par carte** : une seule box `{ topFromBottom, height }` par carte (regroupées dans un bloc `🎛️ CONFIG` en haut du composant) → c'est le SEUL truc à calibrer pour compenser les zones blanches inégales. `topFromBottom` = distance bas-de-l'art → haut-de-box (↑ = box monte) ; `height` = hauteur (↑ = items plus écartés via `space-between`).
+- **Largeur** = fraction de la largeur d'art (`flexW = ART_W * scale * 0.82`) → sert aussi de `wordWrapWidth` (le texte wrap dedans).
+- **Responsive** : les valeurs de box sont en unités « display desktop » ; multiplier par le facteur d'échelle mobile (`oS`) / confirm (`cS`). Une box **partagée** desktop+mobile suffit en général (se propage proportionnellement).
+- ⚠️ **Anchor vs Yoga** : Yoga positionne depuis le **top-left**. Sur les enfants `<Text>` mettre `anchor={0}` (pas `0.5`) + centrage via `alignItems:'center'` (Flex) et `align:'center'` (style). Un `anchor={0.5}` sous layout décale le texte d'une demi-hauteur.
+- **`justifyContent`** : `'space-between'` = titre collé haut / prix collé bas / desc au milieu (idéal reflow). Alternatives : `'center'` + `gap`, `'flex-start'` + `gap`.
+
+**Première implé** : `space-mania-front` BuyBonusPanel (cartes sélection desktop+mobile + popup confirm). Réutiliser ce pattern pour tout stack de texte sur art (popups, win dialogs, HUD labels).
+
 ### 4.8 FreeSpinIntro
 - [ ] **Fichier**: `src/components/freespin/FreeSpinIntro.svelte`
 - [ ] Utiliser `outro_intro_bonus/intro_bonus.json`
@@ -2015,10 +2090,47 @@ const description = $derived(social ? 'Get 10 Free Spins' : 'Win 10 Free Spins')
 - [ ] Adapter pour les 2 modes
 - [ ] Utiliser `layout/popup_free_spin.webp`
 
+### 4.10bis ⭐ Flux du RETRIGGER (free spins) — RÉUTILISABLE
+
+> **🛑 AVANT de coder le retrigger : DEMANDER À L'USER ce qu'on fait.** Le comportement visuel du retrigger n'est **pas** déductible : ça varie par jeu (petit overlay « +X » discret, vs. rejouer l'anim d'intro bonus complète, vs. rien). **Ne jamais décider seul.** Deux choses à clarifier avec l'user :
+> 1. **La RÈGLE math** : retrigger par scatter (chaque scatter +N) OU seuil (≥K scatters → +N flat) ? → c'est une règle **math** (`scatterToFreespins[FREE_SPINS]` + gate dans `onHandleGameFlow`), pas front. Vérifier que math ⟷ spec ⟷ InfoModal concordent (bug vécu Space Mania : math faisait « +5 par scatter » alors que voulu « ≥3 scatters → +5 flat »).
+> 2. **Le COMPORTEMENT visuel** : quoi afficher, et **quel nombre** (le montant ajouté, ex. +5, OU le nouveau total) ?
+
+**Pattern de référence (royale-cake `fs-retriggered`) — rejoue l'intro bonus :**
+1. **Anim WIN des scatters** : dim des autres symboles + animer les symboles scatter (leur anim win), attendre la fin. (royale ajoute un overlay sombre + une pose perso.)
+2. **Splash intro bonus, SANS transition** (on est déjà en freegame — pas de wipe base→bonus) : `uiHide` → `freeSpinIntroShow` → `freeSpinIntroUpdate` (press-to-continue) → `freeSpinIntroHide`.
+3. **Restore** : compteur FS remis à jour + `uiShow`.
+
+**Implé Space Mania (`fs-retrigger` handler) :**
+- Le splash `FreeSpinAnimation` **rend `stateUi.freeSpinCounterTotal`** → pour afficher le montant ajouté, poser `stateUi.freeSpinCounterTotal = bookEvent.extraSpins` **avant** `freeSpinIntroShow`, puis le remettre à `bookEvent.totalFs` (nouveau grand total) après `freeSpinIntroHide` + `freeSpinCounterUpdate`.
+- ⚠️ Space Mania affiche **le montant ajouté (+5)** dans l'intro (choix user), pas le nouveau total (léger écart vs royale qui montre `fs`). **→ toujours reconfirmer ce choix avec l'user.**
+- Pas de transition (déjà freegame) ; l'ancien overlay « +X » (`showRetriggerOverlay`) est remplacé par le splash.
+- Single-digit : `FreeSpinNumberSlots` affiche 2 chiffres → « 05 » pour 5 (masquer le tens si 0 si voulu).
+
 ### 4.11 Win Animations
 - [ ] **Fichier**: `src/components/win/Win.svelte`
 - [ ] Pointer vers nouveaux assets `text_win/`
 - [ ] Mapper les niveaux: nice, mega, epic, mythic, max
+
+### 4.12 ⭐ Board juice (mouvements du board : pop / bounce / shake) — RÉUTILISABLE
+
+> **🛑 AVANT de coder : DEMANDER À L'USER quand il veut des effets ET de quel type.** Le juice du board (les petits mouvements « à la Stake ») n'est **pas** déductible — ça se décide **avec** l'user, jamais seul :
+> 1. **QUAND** (moments déclencheurs) : combinaison gagnante, gros win (seuil), arrêt des reels, impact laser/expand, atterrissage multiplicateur, trigger bonus… (liste à cocher avec l'user).
+> 2. **QUEL TYPE** : `pop` (scale depuis le centre), `bounce` (impulsion positionnelle), `shake`…
+> 3. **PORTÉE** : cadre + grille ensemble, ou grille seule.
+>
+> ⚠️ **Piège vécu (Space Mania)** : un effet qui semble une bonne idée peut être **gênant en jeu** (ex. un settle-bounce à *chaque* spin = fatigant). → proposer, **faire tester**, retirer si ça gêne. Ne pas imposer.
+
+**Archi (propre, réutilisable) :**
+- **State** `stateBoardMotion.svelte.ts` : des **springs Svelte** partagés (`boardScale` défaut 1, `boardOffset` défaut {0,0}) + helpers `boardPop(intensity)` / `boardBounce(dy)` / `boardShake(...)`. Le spring donne le rebond/overshoot naturel **sans courbes à régler**.
+- **Wrapper** `BoardMotion.svelte` : un `<Container>` monté **DANS un `<MainContainer>`** (board-space), `pivot = boardLayout()` (= centre board), `x/y = centre + $boardOffset`, `scale = $boardScale`, `sortableChildren`. Il enveloppe le **bloc board** (frame + grille passés en `children`) → pop **depuis le centre**, tout bouge ensemble. Board-space pur (pas de math canvas).
+- **Montage** : fusionner frame + grille sous **UNE** `<MainContainer><BoardMotion>` (frame `zIndex 0`, grille `zIndex 1` en interne). Les décors HORS board (rock écran, perso, hud) restent **dehors** → ne bougent pas.
+- **Triggers** : appeler les helpers depuis les handlers existants (aucune réécriture). Ex. `boardPop(...)` par **win group** dans la boucle `playWinSequence` (intensité selon `group.totalFinalPayout`).
+
+**🎛️ Réglage du `pop` (smooth) :**
+- 🚨 **Ne PAS faire un `.set(peak, { hard: true })`** (saut instantané) puis retour : ça donne un pop **sec/brutal**. Faire **ease UP** (`boardScale.set(1 + intensity)`, sans `hard`) → **hold** `POP_HOLD_MS` → **ease DOWN** (`set(1)`), avec un `clearTimeout` du pop précédent.
+- Knobs : `intensity` (amplitude, ex. 0.03→0.06 selon win level) · `POP_HOLD_MS` (temps au peak, ↑ = plus lent/smooth) · spring `stiffness` (↓ = plus doux) · `damping` (↑ = moins de wobble). Repère smooth : `stiffness 0.06`, `damping 0.65`, `POP_HOLD_MS ~180`.
+- Réf : `stateBoardMotion.svelte.ts` + `BoardMotion.svelte` (Space Mania).
 
 ---
 
@@ -3124,6 +3236,49 @@ packNumberImage: {
   />
 </Container>
 ```
+
+> 🔁 **Rendre le mapping chiffre→sprite paramétrable** (réutilisable entre jeux qui ont des sheets différents) : ajouter une prop optionnelle `keyFor?: (digit:number)=>string` (défaut = naming du projet source). Ex. Space Mania passe `(d)=>`bfnum_${d}`` (sheet `numbersBoardFreespins`) ; un autre jeu garde `${d}_R`. Ne PAS dupliquer le composant par sheet.
+
+### 2bis. ⭐ Verrouiller un number-slot (ou tout overlay) SUR un spine — sans réglage par layout
+
+> **Problème réutilisable.** On veut afficher un nombre (compteur FS, multiplicateur, montant…) **à un endroit précis de l'art d'un spine** (une plaque, un cartouche cuit dans le skeleton) — et qu'il reste **bien placé ET à la bonne taille** quelle que soit la taille/position du spine (responsive, mobile, popout, changement de `BASE_SPINE_SCALE`). Sans technique, on recalibre l'offset du nombre pour CHAQUE layout → fragile.
+
+**Deux mécanismes, selon que le skeleton expose ou non un slot pour le chiffre :**
+
+**A. Le skeleton a un slot/bone dédié au nombre → attachment Spine (le vrai « collé au spine »).**
+Le chiffre **ride sur un bone** via `skeleton.setAttachment(slot, region)` (cf. §5.3 DuelNumberAttachments / `FreeSpinNumberAttachments`). Position/échelle/rotation suivent l'animation du bone automatiquement. Nécessite l'**injection des régions chiffres** dans l'atlas du spine (SharedAtlasManager, cf. §SHARED ATLAS). À privilégier quand le slot existe.
+
+**B. Le skeleton n'a PAS de slot chiffre (texte/plaque cuits dans l'art) → overlay en ESPACE LOCAL du spine.**
+On rend l'overlay (Sprites du nombre) **dans un `<Container>` qui porte le MÊME scale que le `SpineProvider`**, et on l'offsette en **unités-skeleton (px locaux)**. Comme l'overlay partage l'échelle du spine, **position ET taille se mettent à l'échelle ensemble** → **une seule série de constantes**, valable partout.
+
+```svelte
+<!-- Le spine et l'overlay partagent le même Container parent (même origine).
+     spineScale = BASE_SPINE_SCALE * responsiveFactor. -->
+<Container x={layout.x} y={layout.y}>
+  <SpineProvider key="bonusIntro" scale={spineScale}>
+    <SpineTrack trackIndex={0} animationName="animation" loop />
+  </SpineProvider>
+
+  <!-- Overlay nombre : MÊME scale que le spine → vit dans l'espace local du skeleton.
+       NUMBER_LOCAL_* sont en px-skeleton, mesurés une fois (offset origine→plaque). -->
+  <Container scale={spineScale}>
+    <FreeSpinNumberSlots
+      tens={tens} ones={ones}
+      x={NUMBER_LOCAL_X} y={NUMBER_LOCAL_Y}
+      gap={NUMBER_LOCAL_GAP} scale={NUMBER_LOCAL_SCALE}
+      keyFor={(d)=>`bfnum_${d}`}
+    />
+  </Container>
+</Container>
+```
+
+**Règles / pièges :**
+- ❌ **Ne PAS** scaler l'overlay par le facteur responsive `s` seul (`x = BASE_X * s`) pendant que le spine est à `spineScale = BASE_SPINE_SCALE * s` : les deux **se découplent** (l'overlay ne suit pas `BASE_SPINE_SCALE`, ni un offset spine mobile) → recalibrage par layout. **Toujours** lier l'overlay à `spineScale`.
+- Les constantes `NUMBER_LOCAL_*` sont en **px du skeleton** (pas px écran). Calibrer **une fois** avec un `DEBUG` (valeur fixe affichée en continu), puis ça tient sur tous les layouts.
+- ⚠️ Ceci **contredit volontairement** la note §RESPONSIVE LAYOUT « enfants AU MÊME NIVEAU que le SpineProvider, pas dedans » : cette note vise les éléments qu'on **ne veut PAS** scaler avec le spine (titres/montants indépendants). Ici on veut **l'inverse** — verrouiller sur l'art du spine — donc on partage son scale **exprès**.
+- L'overlay reste un **sibling** du `SpineProvider` (pas un enfant) : on réplique le transform du spine (`scale={spineScale}`) au lieu de l'imbriquer, ce qui évite les surprises si le `SpineProvider` applique anchor/offset interne.
+
+**Choisir A vs B :** ouvrir le `.json` du skeleton, chercher un slot/bone au nom évocateur (`tens`,`ones`,`number`,`mult`…). Présent → **A** (attachment). Absent (que des `Calque…`/art) → **B** (overlay espace-local). Space Mania bonus intro = **B** (l'art contient « YOU JUST WON [ ] FREE SPINS », pas de slot chiffre).
 
 ### 3. Composant WinAmountSprites (Affichage des Montants)
 
@@ -5851,6 +6006,8 @@ Les bugs de ce type ne se résolvent pas « à la lecture ». Trois corrections 
 
 | Date | Phase | Description |
 |------|-------|-------------|
+| 2026-06 | Z-order | Ajout section **Z-ORDER : `sortableChildren` + zIndex explicite vs ordre de montage**. Symptôme : au swap de format d'affichage un élément passe devant un autre (rock devant hud). Cause : pixi-svelte ordonne par ordre d'`addChild` (pas position Svelte) sauf si parent `sortableChildren` ; un enfant conditionnel (`{#if isMobile}`) est ré-append en dernier au remontage → passe au-dessus. Fix : conteneur racine `sortableChildren={true}` + chaque couche wrappée `<Container zIndex={n}>` (barème commenté back→front ; z dépendant du layout = 2 branches `{#if}` à z différents). Généralisé depuis `Game.svelte` Space Mania. |
+| 2026-06 | Bonus intro | §BONUS INTRO/OUTRO — ajout **§2bis : verrouiller un number-slot/overlay SUR un spine** sans réglage par layout. (A) skeleton avec slot chiffre → attachment Spine ; (B) sans slot (texte cuit) → overlay en **espace local du spine** : `<Container scale={spineScale}>` + constantes en **px-skeleton** → position ET taille suivent le spine, calibrage unique. Piège : ne pas scaler l'overlay par le facteur responsive `s` seul (découplage du `BASE_SPINE_SCALE`). Contredit volontairement la note §RESPONSIVE (enfants hors SpineProvider) car ici on VEUT le scale du spine. + prop `keyFor` paramétrable sur `FreeSpinNumberSlots`. |
 | 2026-06 | Layout | §RESPONSIVE LAYOUT — le `layoutType` "desktop" couvre plusieurs ratios. Plein écran + barre navigateur = 1920×911 (ratio 2.11) → jeu letterboxé (fit hauteur 0.843), les valeurs calibrées pour 1080 ne collent plus. Détecter `isWideDesktop = desktop && canvasRatio > 16/9 + ε`. Deux traitements : (A) élément collé au board (full asset) → espace board `mainLayout` + branche `wideDesktop` optionnelle (réf `Character.svelte`) ; (B) décor de coin / **crop partiel** → espace écran `canvasSizes` + un jeu `{scale,margins}` PAR mode, calibré (réf `Rock.svelte`). Un crop partiel ne va PAS en espace board (letterbox révèle le bord). **Exception mobile** : un élément board placé hors-grille (mascotte sur le côté) déborde verticalement en portrait (board fit-largeur) → sur mobile basculer en espace écran (`scale ∝ canvas.height`, position en %) + mount sans MainContainer (réf `Character.svelte` branche `isMobile`). |
 | 2026-06 | Gating/Skip | Ajout section **GATING : ANIMATIONS UI RÉACTIVES ↔ CHAÎNE D'EVENTS ASYNC** — pattern de gate (handler `await` ← composant résout), 4 root causes de deadlock de skip (flag latché lu 2× dans un flush ; complétion qui race avec reset réactif ; effect de skip non re-déclenché → keyer sur nonce + garde par-clé ; garde nouvelle-action incomplète, bug turbo/sans-gating-event), et le **process de debug par logs greppables** (prouver par les données avant de coder). Généralisé depuis Space Mania (reveal multiplicateurs + gate lasers). |
 | 2026-05 | Max win cap bet-double | Fix `capToMaxWin` dans `src/game/utils.ts` — suppression du `bet *` dans la formule du cap. Avant : `bet × MAX_WIN_MULTIPLIER × BOOK_AMOUNT_MULTIPLIER` → à `bet = 0.01`, cap = `12500` book units → HUD plafonné à `1.25 GC`. Après : `MAX_WIN_MULTIPLIER × BOOK_AMOUNT_MULTIPLIER` (formule replay, bet-independent) → cap `1 250 000` book units → render `× wageredBet (= 0.01)` = `125 GC` (12500× bet, correct). Signature passe de `(amount, betAmount?)` à `(amount)`. Bug visible uniquement pour `bet < 1` (mode normal). Mode replay déjà correct. Même racine que "Social mode win display" — le `bet` était double-appliqué (au cap + au render). |
