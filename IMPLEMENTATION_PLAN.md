@@ -5964,9 +5964,27 @@ export const waitAnim = (): Promise<void> => new Promise(res => {         // han
 
 **Règle d'or :** l'état du gate **partagé entre la couche async (handlers) et la couche réactive (composants)** doit être **possédé par du state partagé** et **muté synchroniquement par le handler aux points de décision** — JAMAIS dérivé/reseté à l'intérieur d'un `$effect` de composant, où l'ordre de flush est non déterministe.
 
-### 2. Les 4 pièges (root causes généralisées)
+**Règle d'or (2) — composant d'anim rendu par item : keyer par ID d'instance, pas par clé métier.** Quand l'anim bloquante est un composant rendu dans un `{#each items as it (key)}` (un par colonne / overlay / élément), et que le MÊME item peut **se re-déclencher** à un tour suivant (ex. la même colonne s'expand à chaque spin), il faut que chaque déclenchement soit une **instance neuve** :
 
-Ces 4 bugs ont chacun bloqué la machine. Ils se ressemblent dans toutes les machines.
+```typescript
+// state partagé : chaque item actif porte un id monotone
+let idCounter = 0;
+export const trigger = (column, ...) => {
+    state.active = [...state.active, { column, ..., id: ++idCounter }]; // id UNIQUE par déclenchement
+};
+```
+```svelte
+<!-- ✅ keyé par id → re-déclenchement = REMOUNT frais → l'anim rejoue son cycle → onReady() refire -->
+{#each state.active as it (it.id)}   <AnimComponent ... /> {/each}
+<!-- ❌ keyé par la clé métier (colonne) → Svelte RÉUTILISE l'instance déjà en état final →
+     onReady() ne refire jamais → le handler qui l'await hang (cf. §2.E). -->
+```
+
+Sinon, une instance réutilisée déjà `idle`/finie **ne re-signale pas sa complétion** et garde ses **props périmées** (ancienne position/valeur). Réf : Space Mania `FillExpand` (`fill.id`).
+
+### 2. Les 5 pièges (root causes généralisées)
+
+Ces 5 bugs ont chacun bloqué la machine. Ils se ressemblent dans toutes les machines.
 
 **A. Flag latché lu à deux instants du même flush → état « moitié-skip / moitié-normal » → deadlock.**
 Si une décision par-séquence (ex. `skip`) vit dans le `$state` d'un composant et est **écrite par l'effect parent** pendant que les **enfants la lisent** : quand les enfants tournent AVANT le parent (l'ordre parent→enfant n'est PAS garanti quand les deux dépendent de la même clé réactive), ils lisent une valeur **périmée/latchée**, puis le parent la bascule en cours de flush → moitié des éléments en mode skip, moitié en normal → aucun ne signale sa fin → gate jamais relâché.
@@ -5989,6 +6007,10 @@ if (isIdle && !state.laserBlocking) { bet() } else { stop() }
 // ✅ inclut TOUTES les anims bloquantes
 if (isIdle && !state.laserBlocking && !state.revealRunning) { bet() } else { stop() }
 ```
+
+**E. `{#each}` keyé par une clé métier STABLE → instance réutilisée qui ne re-signale jamais sa fin.**
+Si un composant d'anim bloquante est rendu dans un `{#each items as it (it.<cléMétier>)}` **keyé par une clé stable** (ex. la colonne, l'index), et que le MÊME item est **re-déclenché** à un tour suivant (ex. la même colonne s'expand chaque spin), Svelte **réutilise l'instance existante**. Si cette instance est déjà dans son **état final** (`phase='idle'`, anim finie), son callback de complétion (`onReady()`/`markDone()`) **ne se re-déclenche pas** → mais l'état partagé qui traque « prêt » a pu être **vidé entre-temps** (par le remove/re-add ou un fade de l'ancienne instance) → le handler qui `await`-e cette complétion **hang**. **Turbo-only typique** : en turbo l'anim atteint son état final instantanément (skip) → l'instance réutilisée est idle *avant* le re-déclenchement ; en normal le timing masque la race.
+→ **Fix : keyer le `{#each}` par un `id` MONOTONE par déclenchement** (`(it.id)`, `id = ++counter` à la création), PAS par la clé métier. Un re-déclenchement = **remount d'une instance FRAÎCHE** → l'anim rejoue son cycle (`intro→final` ou `skip→final`) → le callback de complétion **refire** → l'état « prêt » est repeuplé. Corrige aussi les bugs de **props périmées** (l'instance réutilisée gardait l'ancienne position/valeur). *(Space Mania : `FillExpand #each` keyé `fill.id` au lieu de `fill.column` ; le laser Vaisseau re-expandé chaque spin en feature.)*
 
 > **Spécifique TURBO :** ce bug est souvent **invisible en vitesse normale** et n'apparaît qu'en **turbo**. Raison : les reels/handlers sont accélérés (`/timeScale`) mais les anims UI ne le sont pas toujours (un count-up à durée fixe reste lent) → la machine atteint `idle` **pendant** que l'anim joue encore. Pire sur les **branches sans event de gating** (ex. spin sans expand → aucun `isBlockingSpin` posé → rien ne couvre la fenêtre de l'anim). Toujours tester le skip **en turbo** ET sur les spins **sans win / sans feature**.
 
@@ -6014,6 +6036,7 @@ Les bugs de ce type ne se résolvent pas « à la lecture ». Trois corrections 
 | 2026-06 | Bonus intro | §BONUS INTRO/OUTRO — ajout **§2bis : verrouiller un number-slot/overlay SUR un spine** sans réglage par layout. (A) skeleton avec slot chiffre → attachment Spine ; (B) sans slot (texte cuit) → overlay en **espace local du spine** : `<Container scale={spineScale}>` + constantes en **px-skeleton** → position ET taille suivent le spine, calibrage unique. Piège : ne pas scaler l'overlay par le facteur responsive `s` seul (découplage du `BASE_SPINE_SCALE`). Contredit volontairement la note §RESPONSIVE (enfants hors SpineProvider) car ici on VEUT le scale du spine. + prop `keyFor` paramétrable sur `FreeSpinNumberSlots`. |
 | 2026-06 | Layout | §RESPONSIVE LAYOUT — le `layoutType` "desktop" couvre plusieurs ratios. Plein écran + barre navigateur = 1920×911 (ratio 2.11) → jeu letterboxé (fit hauteur 0.843), les valeurs calibrées pour 1080 ne collent plus. Détecter `isWideDesktop = desktop && canvasRatio > 16/9 + ε`. Deux traitements : (A) élément collé au board (full asset) → espace board `mainLayout` + branche `wideDesktop` optionnelle (réf `Character.svelte`) ; (B) décor de coin / **crop partiel** → espace écran `canvasSizes` + un jeu `{scale,margins}` PAR mode, calibré (réf `Rock.svelte`). Un crop partiel ne va PAS en espace board (letterbox révèle le bord). **Exception mobile** : un élément board placé hors-grille (mascotte sur le côté) déborde verticalement en portrait (board fit-largeur) → sur mobile basculer en espace écran (`scale ∝ canvas.height`, position en %) + mount sans MainContainer (réf `Character.svelte` branche `isMobile`). |
 | 2026-06 | Gating/Skip | Ajout section **GATING : ANIMATIONS UI RÉACTIVES ↔ CHAÎNE D'EVENTS ASYNC** — pattern de gate (handler `await` ← composant résout), 4 root causes de deadlock de skip (flag latché lu 2× dans un flush ; complétion qui race avec reset réactif ; effect de skip non re-déclenché → keyer sur nonce + garde par-clé ; garde nouvelle-action incomplète, bug turbo/sans-gating-event), et le **process de debug par logs greppables** (prouver par les données avant de coder). Généralisé depuis Space Mania (reveal multiplicateurs + gate lasers). |
+| 2026-07 | Gating/Skip | §GATING **root cause E** : `{#each}` keyé par une clé métier STABLE (colonne) → Svelte **réutilise** l'instance d'anim au re-déclenchement du même item ; si elle est déjà en état final elle ne re-signale jamais sa fin (`onReady`) alors que l'état « prêt » a été vidé entre-temps → handler `await` **hang** (turbo-only : instance idle instantanée avant re-trigger). Fix : keyer par **id monotone par déclenchement** → remount frais → callback refire. Généralisé depuis Space Mania (`FillExpand #each` `fill.id`, laser Vaisseau re-expandé chaque spin feature). |
 | 2026-05 | Max win cap bet-double | Fix `capToMaxWin` dans `src/game/utils.ts` — suppression du `bet *` dans la formule du cap. Avant : `bet × MAX_WIN_MULTIPLIER × BOOK_AMOUNT_MULTIPLIER` → à `bet = 0.01`, cap = `12500` book units → HUD plafonné à `1.25 GC`. Après : `MAX_WIN_MULTIPLIER × BOOK_AMOUNT_MULTIPLIER` (formule replay, bet-independent) → cap `1 250 000` book units → render `× wageredBet (= 0.01)` = `125 GC` (12500× bet, correct). Signature passe de `(amount, betAmount?)` à `(amount)`. Bug visible uniquement pour `bet < 1` (mode normal). Mode replay déjà correct. Même racine que "Social mode win display" — le `bet` était double-appliqué (au cap + au render). |
 | 2026-05 | Currency precision counters | Fix compteur win 3-décimales dans `Win.svelte` et `FreeSpinOutro.svelte` — décimales count-up locked sur la précision du target final pour éviter le flicker 2↔3 décimales pendant les valeurs intermédiaires noisy de la Tween. Ajout `detectCurrencyDecimalPrecision()`, `numberToCurrencyStringWithFixedDecimals()`, `bookEventAmountToCurrencyStringWithFixedDecimals()` dans `packages/utils-shared/amount.ts`. `numberToCurrencyString` étendu : précision dynamique 2..3 décimales selon valeur (avant : toujours 2 hors `< 0.1`). Cap max 3 décimales partout via constante `MAX_CURRENCY_DECIMALS`. Résout aussi le bug HUD balance figée quand win < 0.01 (ex 988.75 + 0.006 → "988.756"). |
 | 2026-05 | Turbo leak into bonus | Fix `fs-triggered` — clear `stateSpin.savedIsTurbo` et `stateSpin.stopRequested` après la capture/reset turbo. Sans clear, un click stop/skip pendant le pre-bonus spin laissait l'orphan non-null, et le 1er `board-reveal` du bonus restaurait `stateBet.isTurbo = true` via la branche `savedIsTurbo \|\| level >= 2`. HUD montrait turbo OFF (level 0) mais tous les spins bonus tournaient en turbo. |
