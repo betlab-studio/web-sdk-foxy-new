@@ -267,7 +267,19 @@
 					ctx.setRestorationOfStatesFlag?.(true);
 				} finally {
 					gl.bindVertexArray(null);
+					gl.disable(gl.SCISSOR_TEST);
+					// createContext (InitWebGL) disturbs MORE than the VAO — it touches texture bindings,
+					// program, blend, etc. Invalidate ALL of pixi's cached GL state (same set as the per-frame
+					// restore, NOT the whole-renderer resetState which nulls the active render target) so the
+					// next batch fully re-binds. Without texture.resetState() here, the FIRST sprites drawn after
+					// this init (e.g. a loading-screen sprite that appears the same moment) keep a STALE texture
+					// binding and render as a solid rect on WebGL (mobile) — WebGPU is unaffected.
 					renderer.geometry?.resetState?.();
+					renderer.shader?.resetState?.();
+					renderer.state?.resetState?.();
+					renderer.texture?.resetState?.();
+					renderer.buffer?.resetState?.();
+					renderer.stencil?.resetState?.();
 					pixi?.ticker?.start();
 				}
 			}
